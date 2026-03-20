@@ -50,6 +50,14 @@ export interface Category {
   type: TransactionType
 }
 
+export interface CategoryRule {
+  id: string
+  user_id: string
+  category: string
+  keyword: string
+  created_at: string
+}
+
 export type Tool = {
   id: string
   name: string

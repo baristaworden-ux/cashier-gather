@@ -1,9 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Account, AccountBalance, Transaction } from '@/types'
+import { Account, AccountBalance, Transaction, CategoryRule } from '@/types'
 import { formatCurrency, formatDate, cn } from '@/lib/utils'
-import { Plus, Upload, Sparkles, Trash2, X } from 'lucide-react'
+import { Plus, Upload, Sparkles, Trash2, X, Settings, ChevronDown, ChevronUp, Search, ArrowUpDown } from 'lucide-react'
 
 const BANK_LABELS: Record<string, string> = {
   rabobank: 'Rabobank',
@@ -21,6 +21,11 @@ const BANK_COLORS: Record<string, string> = {
   manual: 'bg-slate-400',
 }
 
+const CATEGORIES = [
+  'Wonen', 'Eten & drinken', 'Transport', 'Gezondheid',
+  'Inkomen', 'Belasting', 'Zakelijk', 'Abonnementen', 'Overig',
+]
+
 const CATEGORY_COLORS: Record<string, string> = {
   'Wonen': 'bg-blue-100 text-blue-700',
   'Eten & drinken': 'bg-orange-100 text-orange-700',
@@ -33,7 +38,9 @@ const CATEGORY_COLORS: Record<string, string> = {
   'Overig': 'bg-slate-100 text-slate-700',
 }
 
-type Tab = 'overzicht' | 'transacties' | 'uploaden' | 'rekeningen' | 'overboeking'
+type Tab = 'overzicht' | 'transacties' | 'uploaden' | 'overboeking'
+type SettingsTab = 'rekeningen' | 'categorieen'
+type SortKey = 'date_desc' | 'date_asc' | 'amount_desc' | 'amount_asc'
 
 export default function AdministratiePage() {
   const [tab, setTab] = useState<Tab>('overzicht')
@@ -44,9 +51,22 @@ export default function AdministratiePage() {
   const [categorizing, setCategorizing] = useState(false)
   const [uncategorizedCount, setUncategorizedCount] = useState(0)
 
-  // Filters
+  // Settings
+  const [showSettings, setShowSettings] = useState(false)
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('rekeningen')
+
+  // Category rules
+  const [rules, setRules] = useState<CategoryRule[]>([])
+  const [newRuleCategory, setNewRuleCategory] = useState(CATEGORIES[0])
+  const [newRuleKeyword, setNewRuleKeyword] = useState('')
+  const [savingRule, setSavingRule] = useState(false)
+
+  // Transaction filters
+  const [search, setSearch] = useState('')
   const [filterAccount, setFilterAccount] = useState('')
   const [filterType, setFilterType] = useState('')
+  const [filterCategory, setFilterCategory] = useState('')
+  const [sortKey, setSortKey] = useState<SortKey>('date_desc')
 
   // Upload state
   const [uploadFile, setUploadFile] = useState<File | null>(null)
@@ -73,9 +93,10 @@ export default function AdministratiePage() {
 
   async function loadData() {
     setLoading(true)
-    const [accRes, txRes] = await Promise.all([
+    const [accRes, txRes, rulesRes] = await Promise.all([
       fetch('/api/accounts'),
-      fetch('/api/transactions?limit=200'),
+      fetch('/api/transactions?limit=500'),
+      fetch('/api/category-rules'),
     ])
     if (accRes.ok) {
       const { accounts, balances } = await accRes.json()
@@ -86,6 +107,10 @@ export default function AdministratiePage() {
       const { transactions } = await txRes.json()
       setTransactions(transactions || [])
       setUncategorizedCount((transactions || []).filter((t: Transaction) => !t.category).length)
+    }
+    if (rulesRes.ok) {
+      const { rules } = await rulesRes.json()
+      setRules(rules || [])
     }
     setLoading(false)
   }
@@ -110,6 +135,27 @@ export default function AdministratiePage() {
   async function deleteAccount(id: string) {
     await fetch(`/api/accounts?id=${id}`, { method: 'DELETE' })
     await loadData()
+  }
+
+  async function addRule() {
+    if (!newRuleKeyword.trim()) return
+    setSavingRule(true)
+    const res = await fetch('/api/category-rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category: newRuleCategory, keyword: newRuleKeyword }),
+    })
+    if (res.ok) {
+      const { rule } = await res.json()
+      setRules(r => [...r, rule])
+      setNewRuleKeyword('')
+    }
+    setSavingRule(false)
+  }
+
+  async function deleteRule(id: string) {
+    await fetch(`/api/category-rules?id=${id}`, { method: 'DELETE' })
+    setRules(r => r.filter(x => x.id !== id))
   }
 
   async function handleTransfer() {
@@ -188,41 +234,246 @@ export default function AdministratiePage() {
 
   const totalExpenses = transactions.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
 
-  // Filtered transactions
+  // ── Filtered + sorted transactions ─────────────────────────────────────────
   const filtered = transactions.filter(t => {
     if (filterAccount && t.account_id !== filterAccount) return false
     if (filterType && t.type !== filterType) return false
+    if (filterCategory && t.category !== filterCategory) return false
+    if (search) {
+      const q = search.toLowerCase()
+      if (!t.description.toLowerCase().includes(q)) return false
+    }
     return true
+  }).sort((a, b) => {
+    switch (sortKey) {
+      case 'date_desc': return b.date.localeCompare(a.date)
+      case 'date_asc':  return a.date.localeCompare(b.date)
+      case 'amount_desc': return b.amount - a.amount
+      case 'amount_asc':  return a.amount - b.amount
+    }
   })
+
+  // ── Category rules grouped by category ─────────────────────────────────────
+  const rulesByCategory = CATEGORIES.reduce((acc, cat) => {
+    acc[cat] = rules.filter(r => r.category === cat)
+    return acc
+  }, {} as Record<string, CategoryRule[]>)
 
   const tabs: { key: Tab; label: string }[] = [
     { key: 'overzicht', label: 'Overzicht' },
     { key: 'transacties', label: 'Transacties' },
     { key: 'uploaden', label: 'Uploaden' },
     { key: 'overboeking', label: 'Overboeking' },
-    { key: 'rekeningen', label: 'Rekeningen' },
   ]
 
   return (
     <div className="space-y-6">
+      {/* ── Header ── */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Administratie</h1>
           <p className="text-sm text-slate-500 mt-1">Bankrekeningen, transacties & overzichten.</p>
         </div>
-        {uncategorizedCount > 0 && (
+        <div className="flex items-center gap-2">
+          {uncategorizedCount > 0 && (
+            <button
+              onClick={categorizeAll}
+              disabled={categorizing}
+              className="flex items-center gap-2 px-4 py-2 bg-violet-500 hover:bg-violet-600 text-white text-sm font-medium rounded-xl transition-colors disabled:opacity-60"
+            >
+              <Sparkles size={15} />
+              {categorizing ? 'Categoriseren…' : `${uncategorizedCount} categoriseren`}
+            </button>
+          )}
           <button
-            onClick={categorizeAll}
-            disabled={categorizing}
-            className="flex items-center gap-2 px-4 py-2 bg-violet-500 hover:bg-violet-600 text-white text-sm font-medium rounded-xl transition-colors disabled:opacity-60"
+            onClick={() => setShowSettings(s => !s)}
+            className={cn(
+              'flex items-center gap-2 px-4 py-2 border rounded-xl text-sm font-medium transition-colors',
+              showSettings
+                ? 'bg-slate-900 border-slate-900 text-white'
+                : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
+            )}
           >
-            <Sparkles size={15} />
-            {categorizing ? 'Categoriseren…' : `${uncategorizedCount} categoriseren met AI`}
+            <Settings size={15} />
+            Instellingen
+            {showSettings ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
           </button>
-        )}
+        </div>
       </div>
 
-      {/* Tabs */}
+      {/* ── Settings panel ── */}
+      {showSettings && (
+        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+          <div className="flex border-b border-slate-100">
+            {(['rekeningen', 'categorieen'] as SettingsTab[]).map(st => (
+              <button
+                key={st}
+                onClick={() => setSettingsTab(st)}
+                className={cn(
+                  'px-6 py-3 text-sm font-medium transition-colors',
+                  settingsTab === st
+                    ? 'border-b-2 border-indigo-500 text-indigo-600'
+                    : 'text-slate-500 hover:text-slate-700'
+                )}
+              >
+                {st === 'rekeningen' ? 'Rekeningen' : 'Categorieën & leveranciers'}
+              </button>
+            ))}
+          </div>
+
+          {/* Rekeningen */}
+          {settingsTab === 'rekeningen' && (
+            <div className="p-6 space-y-3">
+              {accounts.map(account => {
+                const acctBalances = balances.filter(b => b.account_id === account.id)
+                return (
+                  <div key={account.id} className="flex items-center justify-between gap-4 py-2 border-b border-slate-50 last:border-0">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-9 h-9 rounded-xl ${BANK_COLORS[account.bank] || 'bg-slate-400'} flex items-center justify-center shrink-0`}>
+                        <span className="text-white text-xs font-bold">{account.bank[0].toUpperCase()}</span>
+                      </div>
+                      <div>
+                        <p className="font-medium text-slate-900 text-sm">{account.name}</p>
+                        <p className="text-xs text-slate-400">{BANK_LABELS[account.bank]}{account.account_number ? ` · ${account.account_number}` : ''}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="flex gap-1.5 flex-wrap justify-end">
+                        {acctBalances.map(b => (
+                          <span key={b.id} className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full font-medium">
+                            {formatCurrency(b.balance, b.currency)}
+                          </span>
+                        ))}
+                      </div>
+                      <button
+                        onClick={() => { if (confirm('Rekening verwijderen? Alle transacties worden ook verwijderd.')) deleteAccount(account.id) }}
+                        className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-400 transition-colors"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+
+              {showAccountForm ? (
+                <div className="border border-slate-200 rounded-xl p-4 space-y-3 mt-2">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-medium text-slate-900 text-sm">Nieuwe rekening</h3>
+                    <button onClick={() => setShowAccountForm(false)} className="text-slate-400 hover:text-slate-600">
+                      <X size={16} />
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Naam (bijv. Rabobank Zakelijk)"
+                    value={newAccount.name}
+                    onChange={e => setNewAccount(a => ({ ...a, name: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400"
+                  />
+                  <select
+                    value={newAccount.bank}
+                    onChange={e => setNewAccount(a => ({ ...a, bank: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white"
+                  >
+                    {Object.entries(BANK_LABELS).map(([val, label]) => (
+                      <option key={val} value={val}>{label}</option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    placeholder="Rekeningnummer (optioneel)"
+                    value={newAccount.account_number}
+                    onChange={e => setNewAccount(a => ({ ...a, account_number: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400"
+                  />
+                  <button
+                    onClick={createAccount}
+                    disabled={!newAccount.name || savingAccount}
+                    className="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-medium py-2 rounded-xl text-sm transition-colors disabled:opacity-50"
+                  >
+                    {savingAccount ? 'Opslaan…' : 'Rekening toevoegen'}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowAccountForm(true)}
+                  className="flex items-center gap-2 text-sm text-indigo-600 hover:text-indigo-700 font-medium mt-1"
+                >
+                  <Plus size={14} />
+                  Rekening toevoegen
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Categorieën */}
+          {settingsTab === 'categorieen' && (
+            <div className="p-6 space-y-6">
+              <p className="text-sm text-slate-500">
+                Voeg leveranciers of trefwoorden toe per categorie. Transacties die deze trefwoorden bevatten worden automatisch gecategoriseerd bij het uploaden.
+              </p>
+
+              {/* Add new rule */}
+              <div className="flex gap-2">
+                <select
+                  value={newRuleCategory}
+                  onChange={e => setNewRuleCategory(e.target.value)}
+                  className="px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white"
+                >
+                  {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                </select>
+                <input
+                  type="text"
+                  placeholder="Leverancier of trefwoord…"
+                  value={newRuleKeyword}
+                  onChange={e => setNewRuleKeyword(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && addRule()}
+                  className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400"
+                />
+                <button
+                  onClick={addRule}
+                  disabled={!newRuleKeyword.trim() || savingRule}
+                  className="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+                >
+                  <Plus size={14} />
+                </button>
+              </div>
+
+              {/* Rules per category */}
+              <div className="space-y-4">
+                {CATEGORIES.map(cat => {
+                  const catRules = rulesByCategory[cat] || []
+                  if (catRules.length === 0) return null
+                  return (
+                    <div key={cat}>
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">{cat}</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {catRules.map(rule => (
+                          <span
+                            key={rule.id}
+                            className={cn('inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full', CATEGORY_COLORS[cat] || CATEGORY_COLORS['Overig'])}
+                          >
+                            {rule.keyword}
+                            <button onClick={() => deleteRule(rule.id)} className="opacity-60 hover:opacity-100 ml-0.5">
+                              <X size={11} />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })}
+                {rules.length === 0 && (
+                  <p className="text-sm text-slate-400 italic">Nog geen regels ingesteld.</p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Main tabs ── */}
       <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-fit">
         {tabs.map(t => (
           <button
@@ -245,7 +496,6 @@ export default function AdministratiePage() {
           {/* ── OVERZICHT ── */}
           {tab === 'overzicht' && (
             <div className="space-y-6">
-              {/* Balance cards per currency */}
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
                 {Object.entries(balancesByCurrency).map(([currency, total]) => (
                   <div key={currency} className="bg-white border border-slate-200 rounded-2xl p-4">
@@ -257,7 +507,6 @@ export default function AdministratiePage() {
                 ))}
               </div>
 
-              {/* Per account */}
               <div>
                 <h2 className="text-sm font-semibold text-slate-700 mb-3">Per rekening</h2>
                 <div className="space-y-2">
@@ -291,7 +540,6 @@ export default function AdministratiePage() {
                 </div>
               </div>
 
-              {/* Top categories */}
               {topCategories.length > 0 && (
                 <div>
                   <h2 className="text-sm font-semibold text-slate-700 mb-3">Uitgaven per categorie</h2>
@@ -323,7 +571,18 @@ export default function AdministratiePage() {
           {/* ── TRANSACTIES ── */}
           {tab === 'transacties' && (
             <div className="space-y-4">
-              <div className="flex gap-2 flex-wrap">
+              {/* Search + filters + sort */}
+              <div className="flex gap-2 flex-wrap items-center">
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder="Zoeken…"
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    className="pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 w-48"
+                  />
+                </div>
                 <select
                   value={filterAccount}
                   onChange={e => setFilterAccount(e.target.value)}
@@ -342,7 +601,30 @@ export default function AdministratiePage() {
                   <option value="expense">Uitgaven</option>
                   <option value="transfer">Overboekingen</option>
                 </select>
+                <select
+                  value={filterCategory}
+                  onChange={e => setFilterCategory(e.target.value)}
+                  className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white"
+                >
+                  <option value="">Alle categorieën</option>
+                  {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                </select>
+                <div className="relative ml-auto">
+                  <ArrowUpDown size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  <select
+                    value={sortKey}
+                    onChange={e => setSortKey(e.target.value as SortKey)}
+                    className="pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white"
+                  >
+                    <option value="date_desc">Datum nieuwste eerst</option>
+                    <option value="date_asc">Datum oudste eerst</option>
+                    <option value="amount_desc">Bedrag hoog → laag</option>
+                    <option value="amount_asc">Bedrag laag → hoog</option>
+                  </select>
+                </div>
               </div>
+
+              <p className="text-xs text-slate-400">{filtered.length} transacties</p>
 
               {filtered.length === 0 ? (
                 <p className="text-sm text-slate-400 italic text-center py-12">Geen transacties gevonden.</p>
@@ -358,7 +640,7 @@ export default function AdministratiePage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {filtered.slice(0, 100).map(tx => (
+                      {filtered.slice(0, 200).map(tx => (
                         <tr key={tx.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
                           <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{formatDate(tx.date)}</td>
                           <td className="px-4 py-3 text-slate-800 max-w-xs truncate">{tx.description}</td>
@@ -382,9 +664,9 @@ export default function AdministratiePage() {
                       ))}
                     </tbody>
                   </table>
-                  {filtered.length > 100 && (
+                  {filtered.length > 200 && (
                     <p className="text-xs text-slate-400 text-center py-3">
-                      {filtered.length - 100} meer transacties — gebruik filters om te verfijnen
+                      Toont 200 van {filtered.length} transacties — gebruik filters om te verfijnen
                     </p>
                   )}
                 </div>
@@ -461,7 +743,7 @@ export default function AdministratiePage() {
               </div>
 
               <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-700">
-                <strong>Tip:</strong> Na het importeren kun je alle niet-gecategoriseerde transacties in één klik laten categoriseren met AI (knop rechtsboven).
+                <strong>Tip:</strong> Stel leveranciers in via Instellingen → Categorieën zodat transacties automatisch worden gecategoriseerd. Resterende transacties kun je met AI categoriseren (knop rechtsboven).
               </div>
             </div>
           )}
@@ -521,7 +803,6 @@ export default function AdministratiePage() {
                   </div>
                 </div>
 
-                {/* Calculated rate preview */}
                 {transfer.from_amount && transfer.to_amount && parseFloat(transfer.from_amount) > 0 && (
                   <div className="bg-slate-50 rounded-xl px-4 py-3 text-sm text-slate-600">
                     <span className="font-medium">Berekende koers: </span>
@@ -534,7 +815,6 @@ export default function AdministratiePage() {
                   <input type="number" placeholder="0.00 (optioneel)" value={transfer.fee_amount}
                     onChange={e => setTransfer(t => ({ ...t, fee_amount: e.target.value }))}
                     className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
-                  <p className="text-xs text-slate-400">Dit bedrag is inbegrepen in het verstuurd bedrag en wordt als aparte kostenpost geregistreerd.</p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -565,91 +845,6 @@ export default function AdministratiePage() {
                   </div>
                 )}
               </div>
-            </div>
-          )}
-
-          {/* ── REKENINGEN ── */}
-          {tab === 'rekeningen' && (
-            <div className="space-y-4 max-w-lg">
-              {accounts.map(account => {
-                const acctBalances = balances.filter(b => b.account_id === account.id)
-                return (
-                  <div key={account.id} className="bg-white border border-slate-200 rounded-2xl p-4 flex items-start justify-between gap-4">
-                    <div className="flex items-start gap-3">
-                      <div className={`w-10 h-10 rounded-xl ${BANK_COLORS[account.bank] || 'bg-slate-400'} flex items-center justify-center shrink-0`}>
-                        <span className="text-white text-sm font-bold">{account.bank[0].toUpperCase()}</span>
-                      </div>
-                      <div>
-                        <p className="font-medium text-slate-900">{account.name}</p>
-                        <p className="text-xs text-slate-400">{BANK_LABELS[account.bank]}{account.account_number ? ` · ${account.account_number}` : ''}</p>
-                        <div className="mt-1.5 flex flex-wrap gap-1.5">
-                          {acctBalances.map(b => (
-                            <span key={b.id} className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full font-medium">
-                              {formatCurrency(b.balance, b.currency)}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => { if (confirm('Rekening verwijderen? Alle transacties worden ook verwijderd.')) deleteAccount(account.id) }}
-                      className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-400 transition-colors shrink-0"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                )
-              })}
-
-              {/* Add account form */}
-              {showAccountForm ? (
-                <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-medium text-slate-900 text-sm">Nieuwe rekening</h3>
-                    <button onClick={() => setShowAccountForm(false)} className="text-slate-400 hover:text-slate-600">
-                      <X size={16} />
-                    </button>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="Naam (bijv. Rabobank Zakelijk)"
-                    value={newAccount.name}
-                    onChange={e => setNewAccount(a => ({ ...a, name: e.target.value }))}
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400"
-                  />
-                  <select
-                    value={newAccount.bank}
-                    onChange={e => setNewAccount(a => ({ ...a, bank: e.target.value }))}
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white"
-                  >
-                    {Object.entries(BANK_LABELS).map(([val, label]) => (
-                      <option key={val} value={val}>{label}</option>
-                    ))}
-                  </select>
-                  <input
-                    type="text"
-                    placeholder="Rekeningnummer (optioneel)"
-                    value={newAccount.account_number}
-                    onChange={e => setNewAccount(a => ({ ...a, account_number: e.target.value }))}
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400"
-                  />
-                  <button
-                    onClick={createAccount}
-                    disabled={!newAccount.name || savingAccount}
-                    className="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-medium py-2 rounded-xl text-sm transition-colors disabled:opacity-50"
-                  >
-                    {savingAccount ? 'Opslaan…' : 'Rekening toevoegen'}
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setShowAccountForm(true)}
-                  className="w-full flex items-center justify-center gap-2 border border-dashed border-slate-200 rounded-2xl py-4 text-sm text-slate-500 hover:text-indigo-600 hover:border-indigo-300 transition-colors"
-                >
-                  <Plus size={15} />
-                  Rekening toevoegen
-                </button>
-              )}
             </div>
           )}
         </>

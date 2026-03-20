@@ -29,16 +29,35 @@ export async function POST(req: NextRequest) {
 
   const existingHashes = new Set((existing || []).map((r: { import_hash: string }) => r.import_hash))
 
+  // Load category rules for auto-matching
+  const { data: rulesData } = await supabase
+    .from('admin_category_rules')
+    .select('category, keyword')
+    .eq('user_id', user.id)
+  const rules: { category: string; keyword: string }[] = rulesData || []
+
+  function matchCategory(description: string): string | null {
+    const lower = description.toLowerCase()
+    for (const rule of rules) {
+      if (lower.includes(rule.keyword)) return rule.category
+    }
+    return null
+  }
+
   const toInsert = parsed
     .filter(t => !existingHashes.has(t.import_hash))
-    .map(t => ({
-      ...t,
-      account_id,
-      user_id: user.id,
-      original_description: t.description,
-      source: bank,
-      ai_categorized: false,
-    }))
+    .map(t => {
+      const category = matchCategory(t.description)
+      return {
+        ...t,
+        account_id,
+        user_id: user.id,
+        original_description: t.description,
+        source: bank,
+        category: category ?? undefined,
+        ai_categorized: false,
+      }
+    })
 
   const skipped = parsed.length - toInsert.length
 
