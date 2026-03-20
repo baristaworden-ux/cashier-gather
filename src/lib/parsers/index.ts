@@ -42,7 +42,7 @@ export function parseRabobank(csv: string): ParsedTransaction[] {
 export function parseWise(csv: string): ParsedTransaction[] {
   const lines = csv.trim().split('\n')
   const header = lines[0].split(',').map(h => h.replace(/^"|"$/g, '').trim())
-  const dateIdx = header.indexOf('Date')
+  const dateIdx = header.findIndex(h => h === 'Date' || h === 'Date Time')
   const amountIdx = header.indexOf('Amount')
   const currencyIdx = header.indexOf('Currency')
   const descIdx = header.indexOf('Description')
@@ -50,7 +50,8 @@ export function parseWise(csv: string): ParsedTransaction[] {
   return lines.slice(1).filter(Boolean).map(line => {
     const cols = parseCsvLine(line)
     const amount = parseFloat(cols[amountIdx])
-    const date = cols[dateIdx]?.slice(0, 10) ?? ''
+    const rawDate = cols[dateIdx]?.slice(0, 10) ?? ''
+    const date = normalizeDate(rawDate)
     const desc = cols[descIdx] ?? ''
     const currency = cols[currencyIdx] ?? 'EUR'
     return {
