@@ -43,6 +43,7 @@ export default function SettingsPage() {
   const [newJar, setNewJar] = useState({ name: '', currency: 'EUR', linked_account_id: '' })
   const [savingAccount, setSavingAccount] = useState(false)
   const [savingJar, setSavingJar] = useState(false)
+  const [jarError, setJarError] = useState<string | null>(null)
 
   // Categories
   const [categories, setCategories] = useState<AdminCategory[]>([])
@@ -91,11 +92,18 @@ export default function SettingsPage() {
   async function addJar() {
     if (!newJar.name.trim()) return
     setSavingJar(true)
+    setJarError(null)
     const res = await fetch('/api/accounts', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: newJar.name, bank: 'manual', account_type: 'jar', currency: newJar.currency, linked_account_id: newJar.linked_account_id || null }),
     })
-    if (res.ok) { setNewJar({ name: '', currency: 'EUR', linked_account_id: '' }); await loadData() }
+    const data = await res.json()
+    if (res.ok) {
+      setNewJar({ name: '', currency: 'EUR', linked_account_id: '' })
+      await loadData()
+    } else {
+      setJarError(data.error || 'Er is een fout opgetreden.')
+    }
     setSavingJar(false)
   }
 
@@ -275,9 +283,12 @@ export default function SettingsPage() {
             </select>
             <button onClick={addJar} disabled={!newJar.name.trim() || savingJar}
               className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm transition-colors disabled:opacity-50">
-              <Plus size={14} />
+              {savingJar ? '…' : <Plus size={14} />}
             </button>
           </div>
+          {jarError && (
+            <div className="px-4 pb-3 text-xs text-red-600">✗ {jarError}</div>
+          )}
         </div>
       </section>
 
