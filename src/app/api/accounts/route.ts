@@ -21,14 +21,14 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { name, bank, account_number } = await req.json()
+  const { name, bank, account_number, account_type } = await req.json()
   if (!name || !bank) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
 
   const color = COLORS[Math.floor(Math.random() * COLORS.length)]
 
   const { data, error } = await supabase
     .from('admin_accounts')
-    .insert({ name, bank, account_number: account_number || null, color, user_id: user.id })
+    .insert({ name, bank, account_number: account_number || null, account_type: account_type || 'account', color, user_id: user.id })
     .select()
     .single()
 

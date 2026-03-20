@@ -29,6 +29,7 @@ export async function POST(req: NextRequest) {
   const txDate = date || new Date().toISOString().slice(0, 10)
   const desc = description || `Overboeking ${from_currency} → ${to_currency}`
   const hash = `transfer-${from_account_id}-${to_account_id}-${from_amount}-${txDate}-${Date.now()}`
+  const transfer_group_id = crypto.randomUUID()
 
   // Debit on source account
   const { error: err1 } = await supabase.from('admin_transactions').insert({
@@ -45,6 +46,7 @@ export async function POST(req: NextRequest) {
     ai_categorized: false,
     source: 'manual',
     import_hash: `${hash}-out`,
+    transfer_group_id,
   })
   if (err1) return NextResponse.json({ error: err1.message }, { status: 500 })
 
@@ -63,6 +65,7 @@ export async function POST(req: NextRequest) {
     ai_categorized: false,
     source: 'manual',
     import_hash: `${hash}-in`,
+    transfer_group_id,
   })
   if (err2) return NextResponse.json({ error: err2.message }, { status: 500 })
 

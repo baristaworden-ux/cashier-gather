@@ -1,31 +1,22 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { Account, AccountBalance, Transaction, CategoryRule } from '@/types'
+import { useEffect, useState, useRef } from 'react'
+import { Account, AccountBalance, Transaction, CategoryRule, AccountType } from '@/types'
 import { formatCurrency, formatDate, cn } from '@/lib/utils'
-import { Plus, Upload, Sparkles, Trash2, X, Settings, ChevronDown, ChevronUp, Search, ArrowUpDown } from 'lucide-react'
+import { Plus, Upload, Sparkles, Trash2, X, Settings, ChevronDown, ChevronUp, Search, ArrowUpDown, Link2, Unlink, PiggyBank } from 'lucide-react'
 
 const BANK_LABELS: Record<string, string> = {
-  rabobank: 'Rabobank',
-  wise: 'Wise',
-  revolut: 'Revolut',
-  ocbc: 'OCBC Indonesia',
-  manual: 'Handmatig',
+  rabobank: 'Rabobank', wise: 'Wise', revolut: 'Revolut',
+  ocbc: 'OCBC Indonesia', manual: 'Handmatig',
 }
-
 const BANK_COLORS: Record<string, string> = {
-  rabobank: 'bg-orange-500',
-  wise: 'bg-green-500',
-  revolut: 'bg-violet-500',
-  ocbc: 'bg-red-500',
-  manual: 'bg-slate-400',
+  rabobank: 'bg-orange-500', wise: 'bg-green-500', revolut: 'bg-violet-500',
+  ocbc: 'bg-red-500', manual: 'bg-slate-400',
 }
-
 const CATEGORIES = [
   'Wonen', 'Eten & drinken', 'Transport', 'Gezondheid',
   'Inkomen', 'Belasting', 'Zakelijk', 'Abonnementen', 'Overig',
 ]
-
 const CATEGORY_COLORS: Record<string, string> = {
   'Wonen': 'bg-blue-100 text-blue-700',
   'Eten & drinken': 'bg-orange-100 text-orange-700',
@@ -39,7 +30,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 }
 
 type Tab = 'overzicht' | 'transacties' | 'uploaden' | 'overboeking'
-type SettingsTab = 'rekeningen' | 'categorieen'
+type SettingsTab = 'rekeningen' | 'jars' | 'categorieen'
 type SortKey = 'date_desc' | 'date_asc' | 'amount_desc' | 'amount_asc'
 
 export default function AdministratiePage() {
@@ -68,7 +59,12 @@ export default function AdministratiePage() {
   const [filterCategory, setFilterCategory] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('date_desc')
 
-  // Upload state
+  // Linking
+  const [linkingTx, setLinkingTx] = useState<Transaction | null>(null)
+  const [linkCandidates, setLinkCandidates] = useState<Transaction[]>([])
+  const linkRef = useRef<HTMLDivElement>(null)
+
+  // Upload
   const [uploadFile, setUploadFile] = useState<File | null>(null)
   const [uploadAccount, setUploadAccount] = useState('')
   const [uploadCurrency, setUploadCurrency] = useState('EUR')
@@ -76,7 +72,7 @@ export default function AdministratiePage() {
   const [uploadResult, setUploadResult] = useState<{ imported: number; skipped: number } | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
 
-  // Transfer state
+  // Transfer
   const [transfer, setTransfer] = useState({
     from_account_id: '', to_account_id: '',
     from_currency: 'EUR', to_currency: 'IDR',
@@ -86,7 +82,8 @@ export default function AdministratiePage() {
   const [transferring, setTransferring] = useState(false)
   const [transferResult, setTransferResult] = useState<{ exchange_rate: number; from: string; to: string } | null>(null)
 
-  // New account form
+  // New account/jar form
+  const [newAccountType, setNewAccountType] = useState<AccountType>('account')
   const [showAccountForm, setShowAccountForm] = useState(false)
   const [newAccount, setNewAccount] = useState({ name: '', bank: 'rabobank', account_number: '' })
   const [savingAccount, setSavingAccount] = useState(false)
@@ -99,30 +96,41 @@ export default function AdministratiePage() {
       fetch('/api/category-rules'),
     ])
     if (accRes.ok) {
-      const { accounts, balances } = await accRes.json()
-      setAccounts(accounts || [])
-      setBalances(balances || [])
+      const d = await accRes.json()
+      setAccounts(d.accounts || [])
+      setBalances(d.balances || [])
     }
     if (txRes.ok) {
-      const { transactions } = await txRes.json()
-      setTransactions(transactions || [])
-      setUncategorizedCount((transactions || []).filter((t: Transaction) => !t.category).length)
+      const d = await txRes.json()
+      setTransactions(d.transactions || [])
+      setUncategorizedCount((d.transactions || []).filter((t: Transaction) => !t.category).length)
     }
     if (rulesRes.ok) {
-      const { rules } = await rulesRes.json()
-      setRules(rules || [])
+      const d = await rulesRes.json()
+      setRules(d.rules || [])
     }
     setLoading(false)
   }
 
   useEffect(() => { loadData() }, [])
 
+  // Close link panel on outside click
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (linkRef.current && !linkRef.current.contains(e.target as Node)) {
+        setLinkingTx(null)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
   async function createAccount() {
     setSavingAccount(true)
     const res = await fetch('/api/accounts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newAccount),
+      body: JSON.stringify({ ...newAccount, account_type: newAccountType }),
     })
     setSavingAccount(false)
     if (res.ok) {
@@ -156,6 +164,46 @@ export default function AdministratiePage() {
   async function deleteRule(id: string) {
     await fetch(`/api/category-rules?id=${id}`, { method: 'DELETE' })
     setRules(r => r.filter(x => x.id !== id))
+  }
+
+  function openLinkPanel(tx: Transaction) {
+    if (linkingTx?.id === tx.id) { setLinkingTx(null); return }
+    const txDate = new Date(tx.date).getTime()
+    const candidates = transactions.filter(t =>
+      t.id !== tx.id &&
+      t.type === 'transfer' &&
+      !t.transfer_group_id &&
+      t.account_id !== tx.account_id &&
+      Math.abs(new Date(t.date).getTime() - txDate) <= 7 * 24 * 3600 * 1000
+    ).sort((a, b) =>
+      Math.abs(new Date(a.date).getTime() - txDate) - Math.abs(new Date(b.date).getTime() - txDate)
+    ).slice(0, 8)
+    setLinkCandidates(candidates)
+    setLinkingTx(tx)
+  }
+
+  async function linkTransactions(id_b: string) {
+    if (!linkingTx) return
+    const res = await fetch('/api/transactions/link', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id_a: linkingTx.id, id_b }),
+    })
+    if (res.ok) {
+      const { transfer_group_id } = await res.json()
+      setTransactions(txs => txs.map(t =>
+        t.id === linkingTx.id || t.id === id_b ? { ...t, transfer_group_id } : t
+      ))
+      setLinkingTx(null)
+    }
+  }
+
+  async function unlinkTransaction(tx: Transaction) {
+    await fetch(`/api/transactions/link?id=${tx.id}`, { method: 'DELETE' })
+    const groupId = tx.transfer_group_id
+    setTransactions(txs => txs.map(t =>
+      t.transfer_group_id === groupId ? { ...t, transfer_group_id: undefined } : t
+    ))
   }
 
   async function handleTransfer() {
@@ -192,57 +240,49 @@ export default function AdministratiePage() {
     formData.append('currency', uploadCurrency)
     const res = await fetch('/api/upload', { method: 'POST', body: formData })
     const data = await res.json()
-    if (res.ok) {
-      setUploadResult(data)
-      await loadData()
-    } else {
-      setUploadError(data.error || 'Er is een fout opgetreden.')
-    }
+    if (res.ok) { setUploadResult(data); await loadData() }
+    else setUploadError(data.error || 'Er is een fout opgetreden.')
     setUploading(false)
   }
 
   async function categorizeAll() {
     setCategorizing(true)
-    const uncategorized = transactions.filter(t => !t.category).map(t => t.id)
-    if (uncategorized.length > 0) {
+    const ids = transactions.filter(t => !t.category).map(t => t.id)
+    if (ids.length > 0) {
       await fetch('/api/categorize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transaction_ids: uncategorized }),
+        body: JSON.stringify({ transaction_ids: ids }),
       })
       await loadData()
     }
     setCategorizing(false)
   }
 
-  // ── Overview calculations ──────────────────────────────────────────────────
-  const balancesByCurrency = balances.reduce((acc, b) => {
-    acc[b.currency] = (acc[b.currency] || 0) + b.balance
-    return acc
-  }, {} as Record<string, number>)
+  // ── Derived data ────────────────────────────────────────────────────────────
+  const regularAccounts = accounts.filter(a => a.account_type !== 'jar')
+  const jars = accounts.filter(a => a.account_type === 'jar')
+
+  const balancesByCurrency = balances
+    .filter(b => regularAccounts.some(a => a.id === b.account_id))
+    .reduce((acc, b) => { acc[b.currency] = (acc[b.currency] || 0) + b.balance; return acc }, {} as Record<string, number>)
+
+  const jarBalancesByCurrency = balances
+    .filter(b => jars.some(a => a.id === b.account_id))
+    .reduce((acc, b) => { acc[b.currency] = (acc[b.currency] || 0) + b.balance; return acc }, {} as Record<string, number>)
 
   const spendingByCategory = transactions
     .filter(t => t.type === 'expense' && t.category)
-    .reduce((acc, t) => {
-      acc[t.category!] = (acc[t.category!] || 0) + t.amount
-      return acc
-    }, {} as Record<string, number>)
+    .reduce((acc, t) => { acc[t.category!] = (acc[t.category!] || 0) + t.amount; return acc }, {} as Record<string, number>)
 
-  const topCategories = Object.entries(spendingByCategory)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8)
-
+  const topCategories = Object.entries(spendingByCategory).sort((a, b) => b[1] - a[1]).slice(0, 8)
   const totalExpenses = transactions.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
 
-  // ── Filtered + sorted transactions ─────────────────────────────────────────
   const filtered = transactions.filter(t => {
     if (filterAccount && t.account_id !== filterAccount) return false
     if (filterType && t.type !== filterType) return false
     if (filterCategory && t.category !== filterCategory) return false
-    if (search) {
-      const q = search.toLowerCase()
-      if (!t.description.toLowerCase().includes(q)) return false
-    }
+    if (search && !t.description.toLowerCase().includes(search.toLowerCase())) return false
     return true
   }).sort((a, b) => {
     switch (sortKey) {
@@ -253,11 +293,11 @@ export default function AdministratiePage() {
     }
   })
 
-  // ── Category rules grouped by category ─────────────────────────────────────
   const rulesByCategory = CATEGORIES.reduce((acc, cat) => {
-    acc[cat] = rules.filter(r => r.category === cat)
-    return acc
+    acc[cat] = rules.filter(r => r.category === cat); return acc
   }, {} as Record<string, CategoryRule[]>)
+
+  const accountMap = Object.fromEntries(accounts.map(a => [a.id, a]))
 
   const tabs: { key: Tab; label: string }[] = [
     { key: 'overzicht', label: 'Overzicht' },
@@ -266,9 +306,70 @@ export default function AdministratiePage() {
     { key: 'overboeking', label: 'Overboeking' },
   ]
 
+  function AccountFormFields() {
+    return (
+      <div className="border border-slate-200 rounded-xl p-4 space-y-3 mt-2">
+        <div className="flex items-center justify-between">
+          <h3 className="font-medium text-slate-900 text-sm">
+            {newAccountType === 'jar' ? 'Nieuwe jar' : 'Nieuwe rekening'}
+          </h3>
+          <button onClick={() => setShowAccountForm(false)} className="text-slate-400 hover:text-slate-600"><X size={16} /></button>
+        </div>
+        <input type="text" placeholder="Naam" value={newAccount.name}
+          onChange={e => setNewAccount(a => ({ ...a, name: e.target.value }))}
+          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+        {newAccountType === 'account' && (
+          <select value={newAccount.bank} onChange={e => setNewAccount(a => ({ ...a, bank: e.target.value }))}
+            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
+            {Object.entries(BANK_LABELS).map(([val, label]) => <option key={val} value={val}>{label}</option>)}
+          </select>
+        )}
+        <input type="text" placeholder="Rekeningnummer / label (optioneel)" value={newAccount.account_number}
+          onChange={e => setNewAccount(a => ({ ...a, account_number: e.target.value }))}
+          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+        <button onClick={createAccount} disabled={!newAccount.name || savingAccount}
+          className="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-medium py-2 rounded-xl text-sm transition-colors disabled:opacity-50">
+          {savingAccount ? 'Opslaan…' : `${newAccountType === 'jar' ? 'Jar' : 'Rekening'} toevoegen`}
+        </button>
+      </div>
+    )
+  }
+
+  function AccountRow({ account }: { account: Account }) {
+    const acctBalances = balances.filter(b => b.account_id === account.id)
+    return (
+      <div className="flex items-center justify-between gap-4 py-2.5 border-b border-slate-50 last:border-0">
+        <div className="flex items-center gap-3">
+          <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center shrink-0', account.account_type === 'jar' ? 'bg-amber-100' : (BANK_COLORS[account.bank] || 'bg-slate-400'))}>
+            {account.account_type === 'jar'
+              ? <PiggyBank size={16} className="text-amber-600" />
+              : <span className="text-white text-xs font-bold">{account.bank[0].toUpperCase()}</span>}
+          </div>
+          <div>
+            <p className="font-medium text-slate-900 text-sm">{account.name}</p>
+            <p className="text-xs text-slate-400">{account.account_type === 'jar' ? 'Jar' : BANK_LABELS[account.bank]}{account.account_number ? ` · ${account.account_number}` : ''}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="flex gap-1.5 flex-wrap justify-end">
+            {acctBalances.map(b => (
+              <span key={b.id} className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full font-medium">
+                {formatCurrency(b.balance, b.currency)}
+              </span>
+            ))}
+          </div>
+          <button onClick={() => { if (confirm(`${account.account_type === 'jar' ? 'Jar' : 'Rekening'} verwijderen? Alle transacties worden ook verwijderd.`)) deleteAccount(account.id) }}
+            className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-400 transition-colors">
+            <Trash2 size={14} />
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
-      {/* ── Header ── */}
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Administratie</h1>
@@ -276,24 +377,15 @@ export default function AdministratiePage() {
         </div>
         <div className="flex items-center gap-2">
           {uncategorizedCount > 0 && (
-            <button
-              onClick={categorizeAll}
-              disabled={categorizing}
-              className="flex items-center gap-2 px-4 py-2 bg-violet-500 hover:bg-violet-600 text-white text-sm font-medium rounded-xl transition-colors disabled:opacity-60"
-            >
+            <button onClick={categorizeAll} disabled={categorizing}
+              className="flex items-center gap-2 px-4 py-2 bg-violet-500 hover:bg-violet-600 text-white text-sm font-medium rounded-xl transition-colors disabled:opacity-60">
               <Sparkles size={15} />
               {categorizing ? 'Categoriseren…' : `${uncategorizedCount} categoriseren`}
             </button>
           )}
-          <button
-            onClick={() => setShowSettings(s => !s)}
-            className={cn(
-              'flex items-center gap-2 px-4 py-2 border rounded-xl text-sm font-medium transition-colors',
-              showSettings
-                ? 'bg-slate-900 border-slate-900 text-white'
-                : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
-            )}
-          >
+          <button onClick={() => setShowSettings(s => !s)}
+            className={cn('flex items-center gap-2 px-4 py-2 border rounded-xl text-sm font-medium transition-colors',
+              showSettings ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300')}>
             <Settings size={15} />
             Instellingen
             {showSettings ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
@@ -301,146 +393,69 @@ export default function AdministratiePage() {
         </div>
       </div>
 
-      {/* ── Settings panel ── */}
+      {/* Settings panel */}
       {showSettings && (
         <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
           <div className="flex border-b border-slate-100">
-            {(['rekeningen', 'categorieen'] as SettingsTab[]).map(st => (
-              <button
-                key={st}
-                onClick={() => setSettingsTab(st)}
-                className={cn(
-                  'px-6 py-3 text-sm font-medium transition-colors',
-                  settingsTab === st
-                    ? 'border-b-2 border-indigo-500 text-indigo-600'
-                    : 'text-slate-500 hover:text-slate-700'
-                )}
-              >
-                {st === 'rekeningen' ? 'Rekeningen' : 'Categorieën & leveranciers'}
+            {(['rekeningen', 'jars', 'categorieen'] as SettingsTab[]).map(st => (
+              <button key={st} onClick={() => setSettingsTab(st)}
+                className={cn('px-5 py-3 text-sm font-medium transition-colors',
+                  settingsTab === st ? 'border-b-2 border-indigo-500 text-indigo-600' : 'text-slate-500 hover:text-slate-700')}>
+                {st === 'rekeningen' ? 'Rekeningen' : st === 'jars' ? 'Jars' : 'Categorieën'}
               </button>
             ))}
           </div>
 
-          {/* Rekeningen */}
           {settingsTab === 'rekeningen' && (
-            <div className="p-6 space-y-3">
-              {accounts.map(account => {
-                const acctBalances = balances.filter(b => b.account_id === account.id)
-                return (
-                  <div key={account.id} className="flex items-center justify-between gap-4 py-2 border-b border-slate-50 last:border-0">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-9 h-9 rounded-xl ${BANK_COLORS[account.bank] || 'bg-slate-400'} flex items-center justify-center shrink-0`}>
-                        <span className="text-white text-xs font-bold">{account.bank[0].toUpperCase()}</span>
-                      </div>
-                      <div>
-                        <p className="font-medium text-slate-900 text-sm">{account.name}</p>
-                        <p className="text-xs text-slate-400">{BANK_LABELS[account.bank]}{account.account_number ? ` · ${account.account_number}` : ''}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="flex gap-1.5 flex-wrap justify-end">
-                        {acctBalances.map(b => (
-                          <span key={b.id} className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full font-medium">
-                            {formatCurrency(b.balance, b.currency)}
-                          </span>
-                        ))}
-                      </div>
-                      <button
-                        onClick={() => { if (confirm('Rekening verwijderen? Alle transacties worden ook verwijderd.')) deleteAccount(account.id) }}
-                        className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-400 transition-colors"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
-
-              {showAccountForm ? (
-                <div className="border border-slate-200 rounded-xl p-4 space-y-3 mt-2">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-medium text-slate-900 text-sm">Nieuwe rekening</h3>
-                    <button onClick={() => setShowAccountForm(false)} className="text-slate-400 hover:text-slate-600">
-                      <X size={16} />
-                    </button>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="Naam (bijv. Rabobank Zakelijk)"
-                    value={newAccount.name}
-                    onChange={e => setNewAccount(a => ({ ...a, name: e.target.value }))}
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400"
-                  />
-                  <select
-                    value={newAccount.bank}
-                    onChange={e => setNewAccount(a => ({ ...a, bank: e.target.value }))}
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white"
-                  >
-                    {Object.entries(BANK_LABELS).map(([val, label]) => (
-                      <option key={val} value={val}>{label}</option>
-                    ))}
-                  </select>
-                  <input
-                    type="text"
-                    placeholder="Rekeningnummer (optioneel)"
-                    value={newAccount.account_number}
-                    onChange={e => setNewAccount(a => ({ ...a, account_number: e.target.value }))}
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400"
-                  />
-                  <button
-                    onClick={createAccount}
-                    disabled={!newAccount.name || savingAccount}
-                    className="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-medium py-2 rounded-xl text-sm transition-colors disabled:opacity-50"
-                  >
-                    {savingAccount ? 'Opslaan…' : 'Rekening toevoegen'}
-                  </button>
-                </div>
+            <div className="p-6 space-y-1">
+              {regularAccounts.map(a => <AccountRow key={a.id} account={a} />)}
+              {showAccountForm && newAccountType === 'account' ? (
+                <AccountFormFields />
               ) : (
-                <button
-                  onClick={() => setShowAccountForm(true)}
-                  className="flex items-center gap-2 text-sm text-indigo-600 hover:text-indigo-700 font-medium mt-1"
-                >
-                  <Plus size={14} />
-                  Rekening toevoegen
+                <button onClick={() => { setNewAccountType('account'); setShowAccountForm(true) }}
+                  className="flex items-center gap-2 text-sm text-indigo-600 hover:text-indigo-700 font-medium mt-3">
+                  <Plus size={14} /> Rekening toevoegen
                 </button>
               )}
             </div>
           )}
 
-          {/* Categorieën */}
+          {settingsTab === 'jars' && (
+            <div className="p-6 space-y-1">
+              <p className="text-sm text-slate-500 mb-4">
+                Een jar is een spaarpotje of rekening in een andere valuta. Je kunt transacties uploaden of overboeken naar/van een jar, net als een gewone rekening.
+              </p>
+              {jars.map(a => <AccountRow key={a.id} account={a} />)}
+              {showAccountForm && newAccountType === 'jar' ? (
+                <AccountFormFields />
+              ) : (
+                <button onClick={() => { setNewAccountType('jar'); setShowAccountForm(true) }}
+                  className="flex items-center gap-2 text-sm text-indigo-600 hover:text-indigo-700 font-medium mt-3">
+                  <Plus size={14} /> Jar toevoegen
+                </button>
+              )}
+            </div>
+          )}
+
           {settingsTab === 'categorieen' && (
             <div className="p-6 space-y-6">
               <p className="text-sm text-slate-500">
-                Voeg leveranciers of trefwoorden toe per categorie. Transacties die deze trefwoorden bevatten worden automatisch gecategoriseerd bij het uploaden.
+                Voeg leveranciers of trefwoorden toe per categorie. Transacties die dit trefwoord bevatten worden automatisch gecategoriseerd bij het uploaden.
               </p>
-
-              {/* Add new rule */}
               <div className="flex gap-2">
-                <select
-                  value={newRuleCategory}
-                  onChange={e => setNewRuleCategory(e.target.value)}
-                  className="px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white"
-                >
+                <select value={newRuleCategory} onChange={e => setNewRuleCategory(e.target.value)}
+                  className="px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
                   {CATEGORIES.map(c => <option key={c}>{c}</option>)}
                 </select>
-                <input
-                  type="text"
-                  placeholder="Leverancier of trefwoord…"
-                  value={newRuleKeyword}
+                <input type="text" placeholder="Leverancier of trefwoord…" value={newRuleKeyword}
                   onChange={e => setNewRuleKeyword(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && addRule()}
-                  className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400"
-                />
-                <button
-                  onClick={addRule}
-                  disabled={!newRuleKeyword.trim() || savingRule}
-                  className="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
-                >
+                  className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+                <button onClick={addRule} disabled={!newRuleKeyword.trim() || savingRule}
+                  className="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50">
                   <Plus size={14} />
                 </button>
               </div>
-
-              {/* Rules per category */}
               <div className="space-y-4">
                 {CATEGORIES.map(cat => {
                   const catRules = rulesByCategory[cat] || []
@@ -450,114 +465,133 @@ export default function AdministratiePage() {
                       <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">{cat}</p>
                       <div className="flex flex-wrap gap-1.5">
                         {catRules.map(rule => (
-                          <span
-                            key={rule.id}
-                            className={cn('inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full', CATEGORY_COLORS[cat] || CATEGORY_COLORS['Overig'])}
-                          >
+                          <span key={rule.id} className={cn('inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full', CATEGORY_COLORS[cat] || CATEGORY_COLORS['Overig'])}>
                             {rule.keyword}
-                            <button onClick={() => deleteRule(rule.id)} className="opacity-60 hover:opacity-100 ml-0.5">
-                              <X size={11} />
-                            </button>
+                            <button onClick={() => deleteRule(rule.id)} className="opacity-60 hover:opacity-100 ml-0.5"><X size={11} /></button>
                           </span>
                         ))}
                       </div>
                     </div>
                   )
                 })}
-                {rules.length === 0 && (
-                  <p className="text-sm text-slate-400 italic">Nog geen regels ingesteld.</p>
-                )}
+                {rules.length === 0 && <p className="text-sm text-slate-400 italic">Nog geen regels ingesteld.</p>}
               </div>
             </div>
           )}
         </div>
       )}
 
-      {/* ── Main tabs ── */}
+      {/* Main tabs */}
       <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-fit">
         {tabs.map(t => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={cn(
-              'px-4 py-1.5 rounded-lg text-sm font-medium transition-colors',
-              tab === t.key ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'
-            )}
-          >
+          <button key={t.key} onClick={() => setTab(t.key)}
+            className={cn('px-4 py-1.5 rounded-lg text-sm font-medium transition-colors',
+              tab === t.key ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700')}>
             {t.label}
           </button>
         ))}
       </div>
 
-      {loading ? (
-        <div className="text-sm text-slate-400 py-16 text-center">Laden…</div>
-      ) : (
+      {loading ? <div className="text-sm text-slate-400 py-16 text-center">Laden…</div> : (
         <>
           {/* ── OVERZICHT ── */}
           {tab === 'overzicht' && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                {Object.entries(balancesByCurrency).map(([currency, total]) => (
-                  <div key={currency} className="bg-white border border-slate-200 rounded-2xl p-4">
-                    <p className="text-xs text-slate-500 font-medium">{currency}</p>
-                    <p className="text-2xl font-semibold text-slate-900 mt-1">
-                      {formatCurrency(total, currency)}
-                    </p>
-                  </div>
-                ))}
-              </div>
-
-              <div>
-                <h2 className="text-sm font-semibold text-slate-700 mb-3">Per rekening</h2>
-                <div className="space-y-2">
-                  {accounts.map(account => {
-                    const acctBalances = balances.filter(b => b.account_id === account.id)
-                    return (
-                      <div key={account.id} className="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-8 h-8 rounded-lg ${BANK_COLORS[account.bank] || 'bg-slate-400'} flex items-center justify-center`}>
-                            <span className="text-white text-xs font-bold">{account.bank[0].toUpperCase()}</span>
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium text-slate-900">{account.name}</p>
-                            <p className="text-xs text-slate-400">{BANK_LABELS[account.bank]}{account.account_number ? ` · ${account.account_number}` : ''}</p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          {acctBalances.length === 0 ? (
-                            <span className="text-xs text-slate-400">Geen saldo</span>
-                          ) : (
-                            acctBalances.map(b => (
-                              <p key={b.id} className="text-sm font-semibold text-slate-900">
-                                {formatCurrency(b.balance, b.currency)}
-                              </p>
-                            ))
-                          )}
-                        </div>
+            <div className="space-y-8">
+              {/* Rekeningen totalen */}
+              {Object.keys(balancesByCurrency).length > 0 && (
+                <div>
+                  <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Totaal saldo</h2>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                    {Object.entries(balancesByCurrency).map(([currency, total]) => (
+                      <div key={currency} className="bg-white border border-slate-200 rounded-2xl p-4">
+                        <p className="text-xs text-slate-500 font-medium">{currency}</p>
+                        <p className="text-2xl font-semibold text-slate-900 mt-1">{formatCurrency(total, currency)}</p>
                       </div>
-                    )
-                  })}
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
 
+              {/* Per rekening */}
+              {regularAccounts.length > 0 && (
+                <div>
+                  <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Rekeningen</h2>
+                  <div className="space-y-2">
+                    {regularAccounts.map(account => {
+                      const acctBalances = balances.filter(b => b.account_id === account.id)
+                      return (
+                        <div key={account.id} className="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-8 h-8 rounded-lg ${BANK_COLORS[account.bank] || 'bg-slate-400'} flex items-center justify-center`}>
+                              <span className="text-white text-xs font-bold">{account.bank[0].toUpperCase()}</span>
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-slate-900">{account.name}</p>
+                              <p className="text-xs text-slate-400">{BANK_LABELS[account.bank]}{account.account_number ? ` · ${account.account_number}` : ''}</p>
+                            </div>
+                          </div>
+                          <div className="text-right space-y-0.5">
+                            {acctBalances.length === 0 ? <span className="text-xs text-slate-400">Geen saldo</span>
+                              : acctBalances.map(b => <p key={b.id} className="text-sm font-semibold text-slate-900">{formatCurrency(b.balance, b.currency)}</p>)}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Jars */}
+              {jars.length > 0 && (
+                <div>
+                  <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Jars</h2>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                    {jars.map(jar => {
+                      const jarBalances = balances.filter(b => b.account_id === jar.id)
+                      return (
+                        <div key={jar.id} className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+                          <div className="flex items-center gap-2 mb-3">
+                            <div className="w-8 h-8 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
+                              <PiggyBank size={15} className="text-amber-600" />
+                            </div>
+                            <p className="text-sm font-semibold text-slate-900 truncate">{jar.name}</p>
+                          </div>
+                          {jarBalances.length === 0
+                            ? <p className="text-xs text-slate-400">Geen saldo</p>
+                            : jarBalances.map(b => (
+                              <div key={b.id}>
+                                <p className="text-xl font-semibold text-slate-900">{formatCurrency(b.balance, b.currency)}</p>
+                                <p className="text-xs text-amber-600 font-medium mt-0.5">{b.currency}</p>
+                              </div>
+                            ))
+                          }
+                        </div>
+                      )
+                    })}
+                  </div>
+                  {Object.keys(jarBalancesByCurrency).length > 0 && (
+                    <p className="text-xs text-slate-400 mt-2">
+                      Totaal in jars: {Object.entries(jarBalancesByCurrency).map(([c, v]) => formatCurrency(v, c)).join(' · ')}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Categories */}
               {topCategories.length > 0 && (
                 <div>
-                  <h2 className="text-sm font-semibold text-slate-700 mb-3">Uitgaven per categorie</h2>
+                  <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Uitgaven per categorie</h2>
                   <div className="space-y-2">
                     {topCategories.map(([cat, amount]) => {
                       const pct = totalExpenses > 0 ? (amount / totalExpenses) * 100 : 0
                       return (
                         <div key={cat} className="bg-white border border-slate-200 rounded-xl px-4 py-3">
                           <div className="flex items-center justify-between mb-1.5">
-                            <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full', CATEGORY_COLORS[cat] || CATEGORY_COLORS['Overig'])}>
-                              {cat}
-                            </span>
-                            <span className="text-sm font-semibold text-slate-900">
-                              {formatCurrency(amount, 'EUR')}
-                            </span>
+                            <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full', CATEGORY_COLORS[cat] || CATEGORY_COLORS['Overig'])}>{cat}</span>
+                            <span className="text-sm font-semibold text-slate-900">{formatCurrency(amount, 'EUR')}</span>
                           </div>
                           <div className="w-full bg-slate-100 rounded-full h-1.5">
-                            <div className="bg-indigo-400 h-1.5 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                            <div className="bg-indigo-400 h-1.5 rounded-full" style={{ width: `${pct}%` }} />
                           </div>
                         </div>
                       )
@@ -571,51 +605,33 @@ export default function AdministratiePage() {
           {/* ── TRANSACTIES ── */}
           {tab === 'transacties' && (
             <div className="space-y-4">
-              {/* Search + filters + sort */}
               <div className="flex gap-2 flex-wrap items-center">
                 <div className="relative">
                   <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                  <input
-                    type="text"
-                    placeholder="Zoeken…"
-                    value={search}
-                    onChange={e => setSearch(e.target.value)}
-                    className="pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 w-48"
-                  />
+                  <input type="text" placeholder="Zoeken…" value={search} onChange={e => setSearch(e.target.value)}
+                    className="pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 w-48" />
                 </div>
-                <select
-                  value={filterAccount}
-                  onChange={e => setFilterAccount(e.target.value)}
-                  className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white"
-                >
+                <select value={filterAccount} onChange={e => setFilterAccount(e.target.value)}
+                  className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
                   <option value="">Alle rekeningen</option>
                   {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </select>
-                <select
-                  value={filterType}
-                  onChange={e => setFilterType(e.target.value)}
-                  className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white"
-                >
+                <select value={filterType} onChange={e => setFilterType(e.target.value)}
+                  className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
                   <option value="">Alles</option>
                   <option value="income">Inkomsten</option>
                   <option value="expense">Uitgaven</option>
                   <option value="transfer">Overboekingen</option>
                 </select>
-                <select
-                  value={filterCategory}
-                  onChange={e => setFilterCategory(e.target.value)}
-                  className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white"
-                >
+                <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)}
+                  className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
                   <option value="">Alle categorieën</option>
                   {CATEGORIES.map(c => <option key={c}>{c}</option>)}
                 </select>
                 <div className="relative ml-auto">
                   <ArrowUpDown size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                  <select
-                    value={sortKey}
-                    onChange={e => setSortKey(e.target.value as SortKey)}
-                    className="pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white"
-                  >
+                  <select value={sortKey} onChange={e => setSortKey(e.target.value as SortKey)}
+                    className="pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
                     <option value="date_desc">Datum nieuwste eerst</option>
                     <option value="date_asc">Datum oudste eerst</option>
                     <option value="amount_desc">Bedrag hoog → laag</option>
@@ -623,54 +639,103 @@ export default function AdministratiePage() {
                   </select>
                 </div>
               </div>
-
               <p className="text-xs text-slate-400">{filtered.length} transacties</p>
 
-              {filtered.length === 0 ? (
-                <p className="text-sm text-slate-400 italic text-center py-12">Geen transacties gevonden.</p>
-              ) : (
-                <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-slate-100">
-                        <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Datum</th>
-                        <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Omschrijving</th>
-                        <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden md:table-cell">Categorie</th>
-                        <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Bedrag</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filtered.slice(0, 200).map(tx => (
-                        <tr key={tx.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                          <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{formatDate(tx.date)}</td>
-                          <td className="px-4 py-3 text-slate-800 max-w-xs truncate">{tx.description}</td>
-                          <td className="px-4 py-3 hidden md:table-cell">
-                            {tx.category ? (
-                              <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full', CATEGORY_COLORS[tx.category] || CATEGORY_COLORS['Overig'])}>
-                                {tx.category}
-                              </span>
-                            ) : (
-                              <span className="text-xs text-slate-400 italic">Niet gecategoriseerd</span>
-                            )}
-                          </td>
-                          <td className={cn(
-                            'px-4 py-3 text-right font-semibold whitespace-nowrap',
-                            tx.type === 'income' ? 'text-emerald-600' : tx.type === 'expense' ? 'text-red-500' : 'text-slate-500'
-                          )}>
-                            {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : ''}
-                            {formatCurrency(tx.amount, tx.currency)}
-                          </td>
+              {filtered.length === 0
+                ? <p className="text-sm text-slate-400 italic text-center py-12">Geen transacties gevonden.</p>
+                : (
+                  <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden" ref={linkRef}>
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-100">
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Datum</th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Omschrijving</th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden md:table-cell">Categorie</th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden lg:table-cell">Koppeling</th>
+                          <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Bedrag</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {filtered.length > 200 && (
-                    <p className="text-xs text-slate-400 text-center py-3">
-                      Toont 200 van {filtered.length} transacties — gebruik filters om te verfijnen
-                    </p>
-                  )}
-                </div>
-              )}
+                      </thead>
+                      <tbody>
+                        {filtered.slice(0, 200).map(tx => {
+                          const isLinking = linkingTx?.id === tx.id
+                          const linkedTx = tx.transfer_group_id
+                            ? transactions.find(t => t.id !== tx.id && t.transfer_group_id === tx.transfer_group_id)
+                            : null
+                          return (
+                            <>
+                              <tr key={tx.id} className={cn('border-b border-slate-50 transition-colors', isLinking ? 'bg-indigo-50' : 'hover:bg-slate-50')}>
+                                <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{formatDate(tx.date)}</td>
+                                <td className="px-4 py-3 text-slate-800 max-w-xs truncate">{tx.description}</td>
+                                <td className="px-4 py-3 hidden md:table-cell">
+                                  {tx.category
+                                    ? <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full', CATEGORY_COLORS[tx.category] || CATEGORY_COLORS['Overig'])}>{tx.category}</span>
+                                    : <span className="text-xs text-slate-400 italic">Niet gecategoriseerd</span>}
+                                </td>
+                                <td className="px-4 py-3 hidden lg:table-cell">
+                                  {tx.type === 'transfer' && (
+                                    linkedTx ? (
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-xs bg-indigo-50 text-indigo-600 border border-indigo-200 px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
+                                          <Link2 size={10} />
+                                          {accountMap[linkedTx.account_id]?.name ?? '—'}
+                                        </span>
+                                        <button onClick={() => unlinkTransaction(tx)} title="Ontkoppelen"
+                                          className="text-slate-300 hover:text-red-400 transition-colors">
+                                          <Unlink size={12} />
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <button onClick={() => openLinkPanel(tx)}
+                                        className={cn('flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border transition-colors',
+                                          isLinking ? 'bg-indigo-100 border-indigo-300 text-indigo-700' : 'border-slate-200 text-slate-400 hover:border-indigo-300 hover:text-indigo-600')}>
+                                        <Link2 size={10} />
+                                        Koppelen
+                                      </button>
+                                    )
+                                  )}
+                                </td>
+                                <td className={cn('px-4 py-3 text-right font-semibold whitespace-nowrap',
+                                  tx.type === 'income' ? 'text-emerald-600' : tx.type === 'expense' ? 'text-red-500' : 'text-slate-500')}>
+                                  {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : ''}
+                                  {formatCurrency(tx.amount, tx.currency)}
+                                </td>
+                              </tr>
+                              {/* Koppel-panel */}
+                              {isLinking && (
+                                <tr key={`${tx.id}-link`} className="bg-indigo-50 border-b border-indigo-100">
+                                  <td colSpan={5} className="px-4 py-3">
+                                    <p className="text-xs font-semibold text-indigo-700 mb-2">Koppel aan tegenpost:</p>
+                                    {linkCandidates.length === 0
+                                      ? <p className="text-xs text-slate-400 italic">Geen kandidaten gevonden binnen 7 dagen op andere rekeningen.</p>
+                                      : (
+                                        <div className="flex flex-wrap gap-2">
+                                          {linkCandidates.map(c => (
+                                            <button key={c.id} onClick={() => linkTransactions(c.id)}
+                                              className="flex items-center gap-2 text-xs bg-white border border-indigo-200 hover:bg-indigo-100 text-slate-700 px-3 py-1.5 rounded-lg transition-colors">
+                                              <span className="font-medium">{formatDate(c.date)}</span>
+                                              <span className="text-slate-400">{accountMap[c.account_id]?.name ?? '—'}</span>
+                                              <span className={cn('font-semibold', c.type === 'income' ? 'text-emerald-600' : 'text-red-500')}>
+                                                {c.type === 'income' ? '+' : '-'}{formatCurrency(c.amount, c.currency)}
+                                              </span>
+                                            </button>
+                                          ))}
+                                        </div>
+                                      )}
+                                  </td>
+                                </tr>
+                              )}
+                            </>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                    {filtered.length > 200 && (
+                      <p className="text-xs text-slate-400 text-center py-3">
+                        Toont 200 van {filtered.length} — gebruik filters om te verfijnen
+                      </p>
+                    )}
+                  </div>
+                )}
             </div>
           )}
 
@@ -679,56 +744,41 @@ export default function AdministratiePage() {
             <div className="max-w-lg space-y-6">
               <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4">
                 <h2 className="font-semibold text-slate-900">Bank statement uploaden</h2>
-                <p className="text-sm text-slate-500">
-                  Ondersteunde banken: Rabobank, Wise, Revolut, OCBC Indonesia. Upload een CSV-bestand — het systeem detecteert automatisch welke bank het is.
-                </p>
-
+                <p className="text-sm text-slate-500">Ondersteunde banken: Rabobank, Wise, Revolut, OCBC Indonesia.</p>
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-slate-600">Rekening <span className="text-red-400">*</span></label>
-                  <select
-                    value={uploadAccount}
-                    onChange={e => setUploadAccount(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white"
-                  >
-                    <option value="">Kies een rekening…</option>
-                    {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  <label className="text-xs font-medium text-slate-600">Rekening of jar <span className="text-red-400">*</span></label>
+                  <select value={uploadAccount} onChange={e => setUploadAccount(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
+                    <option value="">Kies een rekening of jar…</option>
+                    {regularAccounts.length > 0 && (
+                      <optgroup label="Rekeningen">
+                        {regularAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                      </optgroup>
+                    )}
+                    {jars.length > 0 && (
+                      <optgroup label="Jars">
+                        {jars.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                      </optgroup>
+                    )}
                   </select>
                 </div>
-
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-slate-600">Valuta (voor OCBC)</label>
-                  <select
-                    value={uploadCurrency}
-                    onChange={e => setUploadCurrency(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white"
-                  >
-                    <option value="EUR">EUR</option>
-                    <option value="USD">USD</option>
-                    <option value="IDR">IDR</option>
-                    <option value="GBP">GBP</option>
-                    <option value="SGD">SGD</option>
+                  <label className="text-xs font-medium text-slate-600">Valuta (voor OCBC / jar)</label>
+                  <select value={uploadCurrency} onChange={e => setUploadCurrency(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
+                    {['EUR','USD','IDR','GBP','SGD'].map(c => <option key={c}>{c}</option>)}
                   </select>
                 </div>
-
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-slate-600">CSV-bestand <span className="text-red-400">*</span></label>
-                  <input
-                    type="file"
-                    accept=".csv,.txt"
-                    onChange={e => setUploadFile(e.target.files?.[0] ?? null)}
-                    className="w-full text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
-                  />
+                  <input type="file" accept=".csv,.txt" onChange={e => setUploadFile(e.target.files?.[0] ?? null)}
+                    className="w-full text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
                 </div>
-
-                <button
-                  onClick={handleUpload}
-                  disabled={!uploadFile || !uploadAccount || uploading}
-                  className="w-full flex items-center justify-center gap-2 bg-indigo-500 hover:bg-indigo-600 text-white font-medium py-2.5 rounded-xl text-sm transition-colors disabled:opacity-50"
-                >
+                <button onClick={handleUpload} disabled={!uploadFile || !uploadAccount || uploading}
+                  className="w-full flex items-center justify-center gap-2 bg-indigo-500 hover:bg-indigo-600 text-white font-medium py-2.5 rounded-xl text-sm transition-colors disabled:opacity-50">
                   <Upload size={15} />
                   {uploading ? 'Uploaden…' : 'Importeren'}
                 </button>
-
                 {uploadResult && (
                   <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-sm text-emerald-700">
                     ✓ <strong>{uploadResult.imported}</strong> transacties geïmporteerd
@@ -736,14 +786,11 @@ export default function AdministratiePage() {
                   </div>
                 )}
                 {uploadError && (
-                  <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">
-                    ✗ {uploadError}
-                  </div>
+                  <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">✗ {uploadError}</div>
                 )}
               </div>
-
               <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-700">
-                <strong>Tip:</strong> Stel leveranciers in via Instellingen → Categorieën zodat transacties automatisch worden gecategoriseerd. Resterende transacties kun je met AI categoriseren (knop rechtsboven).
+                <strong>Tip:</strong> Stel leveranciers in via Instellingen → Categorieën voor automatische categorisering. Na het uploaden kun je transfers koppelen via Transacties → Koppelen.
               </div>
             </div>
           )}
@@ -753,29 +800,27 @@ export default function AdministratiePage() {
             <div className="max-w-lg space-y-6">
               <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4">
                 <h2 className="font-semibold text-slate-900">Overboeking tussen rekeningen</h2>
-                <p className="text-sm text-slate-500">
-                  Vul in hoeveel je verstuurd hebt en hoeveel je ontvangen hebt. Het systeem berekent automatisch de wisselkoers.
-                </p>
-
+                <p className="text-sm text-slate-500">Vul verstuurd en ontvangen bedrag in. Wisselkoers wordt automatisch berekend. De twee transacties worden automatisch gekoppeld.</p>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
-                    <label className="text-xs font-medium text-slate-600">Van rekening</label>
+                    <label className="text-xs font-medium text-slate-600">Van</label>
                     <select value={transfer.from_account_id} onChange={e => setTransfer(t => ({ ...t, from_account_id: e.target.value }))}
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
-                      <option value="">Kies rekening…</option>
-                      {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                      <option value="">Kies…</option>
+                      {regularAccounts.length > 0 && <optgroup label="Rekeningen">{regularAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</optgroup>}
+                      {jars.length > 0 && <optgroup label="Jars">{jars.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</optgroup>}
                     </select>
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-xs font-medium text-slate-600">Naar rekening</label>
+                    <label className="text-xs font-medium text-slate-600">Naar</label>
                     <select value={transfer.to_account_id} onChange={e => setTransfer(t => ({ ...t, to_account_id: e.target.value }))}
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
-                      <option value="">Kies rekening…</option>
-                      {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                      <option value="">Kies…</option>
+                      {regularAccounts.length > 0 && <optgroup label="Rekeningen">{regularAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</optgroup>}
+                      {jars.length > 0 && <optgroup label="Jars">{jars.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</optgroup>}
                     </select>
                   </div>
                 </div>
-
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <label className="text-xs font-medium text-slate-600">Verstuurd bedrag</label>
@@ -802,21 +847,18 @@ export default function AdministratiePage() {
                     </div>
                   </div>
                 </div>
-
                 {transfer.from_amount && transfer.to_amount && parseFloat(transfer.from_amount) > 0 && (
                   <div className="bg-slate-50 rounded-xl px-4 py-3 text-sm text-slate-600">
                     <span className="font-medium">Berekende koers: </span>
-                    1 {transfer.from_currency} = {(parseFloat(transfer.to_amount) / (parseFloat(transfer.from_amount) - (parseFloat(transfer.fee_amount || '0')))).toLocaleString('nl-NL', { maximumFractionDigits: 2 })} {transfer.to_currency}
+                    1 {transfer.from_currency} = {(parseFloat(transfer.to_amount) / (parseFloat(transfer.from_amount) - (parseFloat(transfer.fee_amount || '0')))).toLocaleString('nl-NL', { maximumFractionDigits: 4 })} {transfer.to_currency}
                   </div>
                 )}
-
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-slate-600">Kosten / wisselkoerskosten ({transfer.from_currency})</label>
-                  <input type="number" placeholder="0.00 (optioneel)" value={transfer.fee_amount}
+                  <label className="text-xs font-medium text-slate-600">Kosten ({transfer.from_currency}, optioneel)</label>
+                  <input type="number" placeholder="0.00" value={transfer.fee_amount}
                     onChange={e => setTransfer(t => ({ ...t, fee_amount: e.target.value }))}
                     className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
                 </div>
-
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <label className="text-xs font-medium text-slate-600">Datum</label>
@@ -830,15 +872,11 @@ export default function AdministratiePage() {
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
                   </div>
                 </div>
-
-                <button
-                  onClick={handleTransfer}
+                <button onClick={handleTransfer}
                   disabled={transferring || !transfer.from_account_id || !transfer.to_account_id || !transfer.from_amount || !transfer.to_amount}
-                  className="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-medium py-2.5 rounded-xl text-sm transition-colors disabled:opacity-50"
-                >
+                  className="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-medium py-2.5 rounded-xl text-sm transition-colors disabled:opacity-50">
                   {transferring ? 'Verwerken…' : 'Overboeking registreren'}
                 </button>
-
                 {transferResult && (
                   <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-sm text-emerald-700">
                     ✓ Overboeking geregistreerd · Koers: 1 {transferResult.from} = {transferResult.exchange_rate.toLocaleString('nl-NL', { maximumFractionDigits: 4 })} {transferResult.to}

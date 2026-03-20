@@ -1,11 +1,13 @@
 export type TransactionType = 'income' | 'expense' | 'transfer'
 export type BankSource = 'rabobank' | 'wise' | 'revolut' | 'ocbc' | 'manual'
+export type AccountType = 'account' | 'jar'
 
 export interface Account {
   id: string
   user_id: string
   name: string
   bank: BankSource
+  account_type: AccountType
   account_number?: string
   color: string
   icon?: string
@@ -37,6 +39,7 @@ export interface Transaction {
   ai_categorized: boolean
   source: BankSource
   import_hash: string // dedup
+  transfer_group_id?: string
   created_at: string
 }
 
