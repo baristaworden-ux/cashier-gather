@@ -1,6 +1,8 @@
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 
+export const CURRENCIES = ['EUR', 'USD', 'IDR', 'GBP', 'SGD', 'AUD', 'CHF', 'JPY']
+
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }

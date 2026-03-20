@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { Account, AccountBalance, Transaction, Vendor, AdminCategory } from '@/types'
-import { formatCurrency, formatDate, cn } from '@/lib/utils'
+import { formatCurrency, formatDate, cn, CURRENCIES } from '@/lib/utils'
 import { Upload, Sparkles, Search, ArrowUpDown, Link2, Unlink, PiggyBank } from 'lucide-react'
 
 const BANK_LABELS: Record<string, string> = {
@@ -623,7 +623,7 @@ export default function AdministratiePage() {
                   <label className="text-xs font-medium text-slate-600">Valuta (voor OCBC / jar)</label>
                   <select value={uploadCurrency} onChange={e => setUploadCurrency(e.target.value)}
                     className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
-                    {['EUR','USD','IDR','GBP','SGD'].map(c => <option key={c}>{c}</option>)}
+                    {CURRENCIES.map(c => <option key={c}>{c}</option>)}
                   </select>
                 </div>
                 <div className="space-y-1.5">
@@ -682,7 +682,7 @@ export default function AdministratiePage() {
                     <div className="flex gap-1.5">
                       <select value={transfer.from_currency} onChange={e => setTransfer(t => ({ ...t, from_currency: e.target.value }))}
                         className="w-20 px-2 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
-                        {['EUR','USD','IDR','GBP','SGD'].map(c => <option key={c}>{c}</option>)}
+                        {CURRENCIES.map(c => <option key={c}>{c}</option>)}
                       </select>
                       <input type="number" placeholder="0.00" value={transfer.from_amount} onChange={e => setTransfer(t => ({ ...t, from_amount: e.target.value }))}
                         className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
@@ -693,7 +693,7 @@ export default function AdministratiePage() {
                     <div className="flex gap-1.5">
                       <select value={transfer.to_currency} onChange={e => setTransfer(t => ({ ...t, to_currency: e.target.value }))}
                         className="w-20 px-2 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
-                        {['IDR','EUR','USD','GBP','SGD'].map(c => <option key={c}>{c}</option>)}
+                        {CURRENCIES.map(c => <option key={c}>{c}</option>)}
                       </select>
                       <input type="number" placeholder="0.00" value={transfer.to_amount} onChange={e => setTransfer(t => ({ ...t, to_amount: e.target.value }))}
                         className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />

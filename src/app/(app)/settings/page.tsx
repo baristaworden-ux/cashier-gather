@@ -5,9 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { LogOut, Plus, Trash2, Search, PiggyBank } from 'lucide-react'
 import { AdminCategory, Vendor, Account, AccountBalance } from '@/types'
-import { cn, formatCurrency } from '@/lib/utils'
-
-const CURRENCIES = ['EUR', 'USD', 'IDR', 'GBP', 'SGD', 'AUD', 'CHF', 'JPY']
+import { cn, formatCurrency, CURRENCIES } from '@/lib/utils'
 
 const BANK_LABELS: Record<string, string> = {
   rabobank: 'Rabobank', wise: 'Wise', revolut: 'Revolut',
