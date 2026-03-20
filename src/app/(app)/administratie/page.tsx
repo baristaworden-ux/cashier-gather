@@ -33,7 +33,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   'Overig': 'bg-slate-100 text-slate-700',
 }
 
-type Tab = 'overzicht' | 'transacties' | 'uploaden' | 'rekeningen'
+type Tab = 'overzicht' | 'transacties' | 'uploaden' | 'rekeningen' | 'overboeking'
 
 export default function AdministratiePage() {
   const [tab, setTab] = useState<Tab>('overzicht')
@@ -54,6 +54,16 @@ export default function AdministratiePage() {
   const [uploadCurrency, setUploadCurrency] = useState('EUR')
   const [uploading, setUploading] = useState(false)
   const [uploadResult, setUploadResult] = useState<{ imported: number; skipped: number } | null>(null)
+
+  // Transfer state
+  const [transfer, setTransfer] = useState({
+    from_account_id: '', to_account_id: '',
+    from_currency: 'EUR', to_currency: 'IDR',
+    from_amount: '', to_amount: '',
+    fee_amount: '', description: '', date: new Date().toISOString().slice(0, 10),
+  })
+  const [transferring, setTransferring] = useState(false)
+  const [transferResult, setTransferResult] = useState<{ exchange_rate: number; from: string; to: string } | null>(null)
 
   // New account form
   const [showAccountForm, setShowAccountForm] = useState(false)
@@ -99,6 +109,29 @@ export default function AdministratiePage() {
   async function deleteAccount(id: string) {
     await fetch(`/api/accounts?id=${id}`, { method: 'DELETE' })
     await loadData()
+  }
+
+  async function handleTransfer() {
+    if (!transfer.from_account_id || !transfer.to_account_id || !transfer.from_amount || !transfer.to_amount) return
+    setTransferring(true)
+    setTransferResult(null)
+    const res = await fetch('/api/transfer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...transfer,
+        from_amount: parseFloat(transfer.from_amount),
+        to_amount: parseFloat(transfer.to_amount),
+        fee_amount: transfer.fee_amount ? parseFloat(transfer.fee_amount) : 0,
+      }),
+    })
+    if (res.ok) {
+      const data = await res.json()
+      setTransferResult({ exchange_rate: data.exchange_rate, from: transfer.from_currency, to: transfer.to_currency })
+      setTransfer(t => ({ ...t, from_amount: '', to_amount: '', fee_amount: '', description: '' }))
+      await loadData()
+    }
+    setTransferring(false)
   }
 
   async function handleUpload() {
@@ -162,6 +195,7 @@ export default function AdministratiePage() {
     { key: 'overzicht', label: 'Overzicht' },
     { key: 'transacties', label: 'Transacties' },
     { key: 'uploaden', label: 'Uploaden' },
+    { key: 'overboeking', label: 'Overboeking' },
     { key: 'rekeningen', label: 'Rekeningen' },
   ]
 
@@ -419,6 +453,108 @@ export default function AdministratiePage() {
 
               <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-700">
                 <strong>Tip:</strong> Na het importeren kun je alle niet-gecategoriseerde transacties in één klik laten categoriseren met AI (knop rechtsboven).
+              </div>
+            </div>
+          )}
+
+          {/* ── OVERBOEKING ── */}
+          {tab === 'overboeking' && (
+            <div className="max-w-lg space-y-6">
+              <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4">
+                <h2 className="font-semibold text-slate-900">Overboeking tussen rekeningen</h2>
+                <p className="text-sm text-slate-500">
+                  Vul in hoeveel je verstuurd hebt en hoeveel je ontvangen hebt. Het systeem berekent automatisch de wisselkoers.
+                </p>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-slate-600">Van rekening</label>
+                    <select value={transfer.from_account_id} onChange={e => setTransfer(t => ({ ...t, from_account_id: e.target.value }))}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
+                      <option value="">Kies rekening…</option>
+                      {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-slate-600">Naar rekening</label>
+                    <select value={transfer.to_account_id} onChange={e => setTransfer(t => ({ ...t, to_account_id: e.target.value }))}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
+                      <option value="">Kies rekening…</option>
+                      {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-slate-600">Verstuurd bedrag</label>
+                    <div className="flex gap-1.5">
+                      <select value={transfer.from_currency} onChange={e => setTransfer(t => ({ ...t, from_currency: e.target.value }))}
+                        className="w-20 px-2 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
+                        {['EUR','USD','IDR','GBP','SGD'].map(c => <option key={c}>{c}</option>)}
+                      </select>
+                      <input type="number" placeholder="0.00" value={transfer.from_amount}
+                        onChange={e => setTransfer(t => ({ ...t, from_amount: e.target.value }))}
+                        className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-slate-600">Ontvangen bedrag</label>
+                    <div className="flex gap-1.5">
+                      <select value={transfer.to_currency} onChange={e => setTransfer(t => ({ ...t, to_currency: e.target.value }))}
+                        className="w-20 px-2 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
+                        {['IDR','EUR','USD','GBP','SGD'].map(c => <option key={c}>{c}</option>)}
+                      </select>
+                      <input type="number" placeholder="0.00" value={transfer.to_amount}
+                        onChange={e => setTransfer(t => ({ ...t, to_amount: e.target.value }))}
+                        className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Calculated rate preview */}
+                {transfer.from_amount && transfer.to_amount && parseFloat(transfer.from_amount) > 0 && (
+                  <div className="bg-slate-50 rounded-xl px-4 py-3 text-sm text-slate-600">
+                    <span className="font-medium">Berekende koers: </span>
+                    1 {transfer.from_currency} = {(parseFloat(transfer.to_amount) / (parseFloat(transfer.from_amount) - (parseFloat(transfer.fee_amount || '0')))).toLocaleString('nl-NL', { maximumFractionDigits: 2 })} {transfer.to_currency}
+                  </div>
+                )}
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-slate-600">Kosten / wisselkoerskosten ({transfer.from_currency})</label>
+                  <input type="number" placeholder="0.00 (optioneel)" value={transfer.fee_amount}
+                    onChange={e => setTransfer(t => ({ ...t, fee_amount: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+                  <p className="text-xs text-slate-400">Dit bedrag is inbegrepen in het verstuurd bedrag en wordt als aparte kostenpost geregistreerd.</p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-slate-600">Datum</label>
+                    <input type="date" value={transfer.date} onChange={e => setTransfer(t => ({ ...t, date: e.target.value }))}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-slate-600">Omschrijving (optioneel)</label>
+                    <input type="text" placeholder="Overboeking naar…" value={transfer.description}
+                      onChange={e => setTransfer(t => ({ ...t, description: e.target.value }))}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleTransfer}
+                  disabled={transferring || !transfer.from_account_id || !transfer.to_account_id || !transfer.from_amount || !transfer.to_amount}
+                  className="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-medium py-2.5 rounded-xl text-sm transition-colors disabled:opacity-50"
+                >
+                  {transferring ? 'Verwerken…' : 'Overboeking registreren'}
+                </button>
+
+                {transferResult && (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-sm text-emerald-700">
+                    ✓ Overboeking geregistreerd · Koers: 1 {transferResult.from} = {transferResult.exchange_rate.toLocaleString('nl-NL', { maximumFractionDigits: 4 })} {transferResult.to}
+                  </div>
+                )}
               </div>
             </div>
           )}
