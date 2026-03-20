@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
-import { Account, AccountBalance, Transaction, CategoryRule, AccountType } from '@/types'
+import { useEffect, useState, useRef, useCallback } from 'react'
+import { Account, AccountBalance, Transaction, Vendor, AdminCategory, AccountType } from '@/types'
 import { formatCurrency, formatDate, cn } from '@/lib/utils'
-import { Plus, Upload, Sparkles, Trash2, X, Settings, ChevronDown, ChevronUp, Search, ArrowUpDown, Link2, Unlink, PiggyBank } from 'lucide-react'
+import { Plus, Upload, Sparkles, Trash2, X, Search, ArrowUpDown, Link2, Unlink, PiggyBank } from 'lucide-react'
 
 const BANK_LABELS: Record<string, string> = {
   rabobank: 'Rabobank', wise: 'Wise', revolut: 'Revolut',
@@ -13,51 +13,40 @@ const BANK_COLORS: Record<string, string> = {
   rabobank: 'bg-orange-500', wise: 'bg-green-500', revolut: 'bg-violet-500',
   ocbc: 'bg-red-500', manual: 'bg-slate-400',
 }
-const CATEGORIES = [
-  'Wonen', 'Eten & drinken', 'Transport', 'Gezondheid',
-  'Inkomen', 'Belasting', 'Zakelijk', 'Abonnementen', 'Overig',
-]
-const CATEGORY_COLORS: Record<string, string> = {
-  'Wonen': 'bg-blue-100 text-blue-700',
-  'Eten & drinken': 'bg-orange-100 text-orange-700',
-  'Transport': 'bg-violet-100 text-violet-700',
-  'Gezondheid': 'bg-emerald-100 text-emerald-700',
-  'Inkomen': 'bg-green-100 text-green-700',
-  'Belasting': 'bg-red-100 text-red-700',
-  'Zakelijk': 'bg-indigo-100 text-indigo-700',
-  'Abonnementen': 'bg-pink-100 text-pink-700',
-  'Overig': 'bg-slate-100 text-slate-700',
-}
 
 type Tab = 'overzicht' | 'transacties' | 'uploaden' | 'overboeking'
-type SettingsTab = 'rekeningen' | 'jars' | 'categorieen'
 type SortKey = 'date_desc' | 'date_asc' | 'amount_desc' | 'amount_asc'
+
+interface CellDropdown {
+  txId: string
+  field: 'vendor' | 'category'
+  top: number
+  left: number
+}
 
 export default function AdministratiePage() {
   const [tab, setTab] = useState<Tab>('overzicht')
   const [accounts, setAccounts] = useState<Account[]>([])
   const [balances, setBalances] = useState<AccountBalance[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [vendors, setVendors] = useState<Vendor[]>([])
+  const [categories, setCategories] = useState<AdminCategory[]>([])
   const [loading, setLoading] = useState(true)
   const [categorizing, setCategorizing] = useState(false)
   const [uncategorizedCount, setUncategorizedCount] = useState(0)
-
-  // Settings
-  const [showSettings, setShowSettings] = useState(false)
-  const [settingsTab, setSettingsTab] = useState<SettingsTab>('rekeningen')
-
-  // Category rules
-  const [rules, setRules] = useState<CategoryRule[]>([])
-  const [newRuleCategory, setNewRuleCategory] = useState(CATEGORIES[0])
-  const [newRuleKeyword, setNewRuleKeyword] = useState('')
-  const [savingRule, setSavingRule] = useState(false)
 
   // Transaction filters
   const [search, setSearch] = useState('')
   const [filterAccount, setFilterAccount] = useState('')
   const [filterType, setFilterType] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
+  const [filterVendor, setFilterVendor] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('date_desc')
+
+  // Inline cell edit
+  const [cellDropdown, setCellDropdown] = useState<CellDropdown | null>(null)
+  const [cellSearch, setCellSearch] = useState('')
+  const dropdownRef = useRef<HTMLDivElement>(null)
 
   // Linking
   const [linkingTx, setLinkingTx] = useState<Transaction | null>(null)
@@ -90,89 +79,73 @@ export default function AdministratiePage() {
 
   async function loadData() {
     setLoading(true)
-    const [accRes, txRes, rulesRes] = await Promise.all([
+    const [accRes, txRes, vendorRes, catRes] = await Promise.all([
       fetch('/api/accounts'),
       fetch('/api/transactions?limit=500'),
-      fetch('/api/category-rules'),
+      fetch('/api/vendors'),
+      fetch('/api/categories'),
     ])
-    if (accRes.ok) {
-      const d = await accRes.json()
-      setAccounts(d.accounts || [])
-      setBalances(d.balances || [])
-    }
+    if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []) }
     if (txRes.ok) {
       const d = await txRes.json()
       setTransactions(d.transactions || [])
       setUncategorizedCount((d.transactions || []).filter((t: Transaction) => !t.category).length)
     }
-    if (rulesRes.ok) {
-      const d = await rulesRes.json()
-      setRules(d.rules || [])
-    }
+    if (vendorRes.ok) { const d = await vendorRes.json(); setVendors(d.vendors || []) }
+    if (catRes.ok) { const d = await catRes.json(); setCategories(d.categories || []) }
     setLoading(false)
   }
 
   useEffect(() => { loadData() }, [])
 
-  // Close link panel on outside click
+  // Close dropdowns on outside click
   useEffect(() => {
     function handler(e: MouseEvent) {
-      if (linkRef.current && !linkRef.current.contains(e.target as Node)) {
-        setLinkingTx(null)
-      }
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) setCellDropdown(null)
+      if (linkRef.current && !linkRef.current.contains(e.target as Node)) setLinkingTx(null)
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  async function createAccount() {
-    setSavingAccount(true)
-    const res = await fetch('/api/accounts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...newAccount, account_type: newAccountType }),
-    })
-    setSavingAccount(false)
-    if (res.ok) {
-      setShowAccountForm(false)
-      setNewAccount({ name: '', bank: 'rabobank', account_number: '' })
-      await loadData()
+  // ── Cell inline edit ────────────────────────────────────────────────────────
+  function openCellDropdown(tx: Transaction, field: 'vendor' | 'category', e: React.MouseEvent) {
+    e.stopPropagation()
+    if (cellDropdown?.txId === tx.id && cellDropdown.field === field) { setCellDropdown(null); return }
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    setCellDropdown({ txId: tx.id, field, top: rect.bottom + 4, left: rect.left })
+    setCellSearch('')
+  }
+
+  const updateCellValue = useCallback(async (txId: string, field: 'vendor' | 'category', value: string) => {
+    const update: Record<string, string | null> = { [field]: value || null }
+    if (field === 'vendor' && value) {
+      const vendor = vendors.find(v => v.name === value)
+      if (vendor?.category) update.category = vendor.category
     }
-  }
-
-  async function deleteAccount(id: string) {
-    await fetch(`/api/accounts?id=${id}`, { method: 'DELETE' })
-    await loadData()
-  }
-
-  async function addRule() {
-    if (!newRuleKeyword.trim()) return
-    setSavingRule(true)
-    const res = await fetch('/api/category-rules', {
-      method: 'POST',
+    await fetch('/api/transactions', {
+      method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ category: newRuleCategory, keyword: newRuleKeyword }),
+      body: JSON.stringify({ id: txId, ...update }),
     })
-    if (res.ok) {
-      const { rule } = await res.json()
-      setRules(r => [...r, rule])
-      setNewRuleKeyword('')
-    }
-    setSavingRule(false)
-  }
+    setTransactions(txs => txs.map(t => t.id === txId ? { ...t, ...update } : t))
+    setCellDropdown(null)
+  }, [vendors])
 
-  async function deleteRule(id: string) {
-    await fetch(`/api/category-rules?id=${id}`, { method: 'DELETE' })
-    setRules(r => r.filter(x => x.id !== id))
-  }
+  const categoryNames = categories.map(c => c.name)
+  const vendorNames = vendors.map(v => v.name)
 
+  const dropdownOptions: string[] = cellDropdown?.field === 'vendor' ? vendorNames : categoryNames
+  const filteredDropdownOptions = dropdownOptions.filter(o =>
+    !cellSearch || o.toLowerCase().includes(cellSearch.toLowerCase())
+  )
+
+  // ── Linking ─────────────────────────────────────────────────────────────────
   function openLinkPanel(tx: Transaction) {
     if (linkingTx?.id === tx.id) { setLinkingTx(null); return }
     const txDate = new Date(tx.date).getTime()
     const candidates = transactions.filter(t =>
-      t.id !== tx.id &&
-      t.type === 'transfer' &&
-      !t.transfer_group_id &&
+      t.id !== tx.id && t.type === 'transfer' && !t.transfer_group_id &&
       t.account_id !== tx.account_id &&
       Math.abs(new Date(t.date).getTime() - txDate) <= 7 * 24 * 3600 * 1000
     ).sort((a, b) =>
@@ -185,8 +158,7 @@ export default function AdministratiePage() {
   async function linkTransactions(id_b: string) {
     if (!linkingTx) return
     const res = await fetch('/api/transactions/link', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id_a: linkingTx.id, id_b }),
     })
     if (res.ok) {
@@ -201,24 +173,15 @@ export default function AdministratiePage() {
   async function unlinkTransaction(tx: Transaction) {
     await fetch(`/api/transactions/link?id=${tx.id}`, { method: 'DELETE' })
     const groupId = tx.transfer_group_id
-    setTransactions(txs => txs.map(t =>
-      t.transfer_group_id === groupId ? { ...t, transfer_group_id: undefined } : t
-    ))
+    setTransactions(txs => txs.map(t => t.transfer_group_id === groupId ? { ...t, transfer_group_id: undefined } : t))
   }
 
   async function handleTransfer() {
     if (!transfer.from_account_id || !transfer.to_account_id || !transfer.from_amount || !transfer.to_amount) return
-    setTransferring(true)
-    setTransferResult(null)
+    setTransferring(true); setTransferResult(null)
     const res = await fetch('/api/transfer', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...transfer,
-        from_amount: parseFloat(transfer.from_amount),
-        to_amount: parseFloat(transfer.to_amount),
-        fee_amount: transfer.fee_amount ? parseFloat(transfer.fee_amount) : 0,
-      }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...transfer, from_amount: parseFloat(transfer.from_amount), to_amount: parseFloat(transfer.to_amount), fee_amount: transfer.fee_amount ? parseFloat(transfer.fee_amount) : 0 }),
     })
     if (res.ok) {
       const data = await res.json()
@@ -231,9 +194,7 @@ export default function AdministratiePage() {
 
   async function handleUpload() {
     if (!uploadFile || !uploadAccount) return
-    setUploading(true)
-    setUploadResult(null)
-    setUploadError(null)
+    setUploading(true); setUploadResult(null); setUploadError(null)
     const formData = new FormData()
     formData.append('file', uploadFile)
     formData.append('account_id', uploadAccount)
@@ -249,19 +210,28 @@ export default function AdministratiePage() {
     setCategorizing(true)
     const ids = transactions.filter(t => !t.category).map(t => t.id)
     if (ids.length > 0) {
-      await fetch('/api/categorize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transaction_ids: ids }),
-      })
+      await fetch('/api/categorize', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transaction_ids: ids }) })
       await loadData()
     }
     setCategorizing(false)
   }
 
-  // ── Derived data ────────────────────────────────────────────────────────────
+  async function createAccount() {
+    setSavingAccount(true)
+    const res = await fetch('/api/accounts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...newAccount, account_type: newAccountType }) })
+    setSavingAccount(false)
+    if (res.ok) { setShowAccountForm(false); setNewAccount({ name: '', bank: 'rabobank', account_number: '' }); await loadData() }
+  }
+
+  async function deleteAccount(id: string) {
+    await fetch(`/api/accounts?id=${id}`, { method: 'DELETE' })
+    await loadData()
+  }
+
+  // ── Derived data ─────────────────────────────────────────────────────────────
   const regularAccounts = accounts.filter(a => a.account_type !== 'jar')
   const jars = accounts.filter(a => a.account_type === 'jar')
+  const accountMap = Object.fromEntries(accounts.map(a => [a.id, a]))
 
   const balancesByCurrency = balances
     .filter(b => regularAccounts.some(a => a.id === b.account_id))
@@ -271,10 +241,8 @@ export default function AdministratiePage() {
     .filter(b => jars.some(a => a.id === b.account_id))
     .reduce((acc, b) => { acc[b.currency] = (acc[b.currency] || 0) + b.balance; return acc }, {} as Record<string, number>)
 
-  const spendingByCategory = transactions
-    .filter(t => t.type === 'expense' && t.category)
+  const spendingByCategory = transactions.filter(t => t.type === 'expense' && t.category)
     .reduce((acc, t) => { acc[t.category!] = (acc[t.category!] || 0) + t.amount; return acc }, {} as Record<string, number>)
-
   const topCategories = Object.entries(spendingByCategory).sort((a, b) => b[1] - a[1]).slice(0, 8)
   const totalExpenses = transactions.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
 
@@ -282,6 +250,7 @@ export default function AdministratiePage() {
     if (filterAccount && t.account_id !== filterAccount) return false
     if (filterType && t.type !== filterType) return false
     if (filterCategory && t.category !== filterCategory) return false
+    if (filterVendor && t.vendor !== filterVendor) return false
     if (search && !t.description.toLowerCase().includes(search.toLowerCase())) return false
     return true
   }).sort((a, b) => {
@@ -293,12 +262,6 @@ export default function AdministratiePage() {
     }
   })
 
-  const rulesByCategory = CATEGORIES.reduce((acc, cat) => {
-    acc[cat] = rules.filter(r => r.category === cat); return acc
-  }, {} as Record<string, CategoryRule[]>)
-
-  const accountMap = Object.fromEntries(accounts.map(a => [a.id, a]))
-
   const tabs: { key: Tab; label: string }[] = [
     { key: 'overzicht', label: 'Overzicht' },
     { key: 'transacties', label: 'Transacties' },
@@ -306,65 +269,12 @@ export default function AdministratiePage() {
     { key: 'overboeking', label: 'Overboeking' },
   ]
 
-  function AccountFormFields() {
-    return (
-      <div className="border border-slate-200 rounded-xl p-4 space-y-3 mt-2">
-        <div className="flex items-center justify-between">
-          <h3 className="font-medium text-slate-900 text-sm">
-            {newAccountType === 'jar' ? 'Nieuwe jar' : 'Nieuwe rekening'}
-          </h3>
-          <button onClick={() => setShowAccountForm(false)} className="text-slate-400 hover:text-slate-600"><X size={16} /></button>
-        </div>
-        <input type="text" placeholder="Naam" value={newAccount.name}
-          onChange={e => setNewAccount(a => ({ ...a, name: e.target.value }))}
-          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
-        {newAccountType === 'account' && (
-          <select value={newAccount.bank} onChange={e => setNewAccount(a => ({ ...a, bank: e.target.value }))}
-            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
-            {Object.entries(BANK_LABELS).map(([val, label]) => <option key={val} value={val}>{label}</option>)}
-          </select>
-        )}
-        <input type="text" placeholder="Rekeningnummer / label (optioneel)" value={newAccount.account_number}
-          onChange={e => setNewAccount(a => ({ ...a, account_number: e.target.value }))}
-          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
-        <button onClick={createAccount} disabled={!newAccount.name || savingAccount}
-          className="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-medium py-2 rounded-xl text-sm transition-colors disabled:opacity-50">
-          {savingAccount ? 'Opslaan…' : `${newAccountType === 'jar' ? 'Jar' : 'Rekening'} toevoegen`}
-        </button>
-      </div>
-    )
-  }
-
-  function AccountRow({ account }: { account: Account }) {
-    const acctBalances = balances.filter(b => b.account_id === account.id)
-    return (
-      <div className="flex items-center justify-between gap-4 py-2.5 border-b border-slate-50 last:border-0">
-        <div className="flex items-center gap-3">
-          <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center shrink-0', account.account_type === 'jar' ? 'bg-amber-100' : (BANK_COLORS[account.bank] || 'bg-slate-400'))}>
-            {account.account_type === 'jar'
-              ? <PiggyBank size={16} className="text-amber-600" />
-              : <span className="text-white text-xs font-bold">{account.bank[0].toUpperCase()}</span>}
-          </div>
-          <div>
-            <p className="font-medium text-slate-900 text-sm">{account.name}</p>
-            <p className="text-xs text-slate-400">{account.account_type === 'jar' ? 'Jar' : BANK_LABELS[account.bank]}{account.account_number ? ` · ${account.account_number}` : ''}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="flex gap-1.5 flex-wrap justify-end">
-            {acctBalances.map(b => (
-              <span key={b.id} className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full font-medium">
-                {formatCurrency(b.balance, b.currency)}
-              </span>
-            ))}
-          </div>
-          <button onClick={() => { if (confirm(`${account.account_type === 'jar' ? 'Jar' : 'Rekening'} verwijderen? Alle transacties worden ook verwijderd.`)) deleteAccount(account.id) }}
-            className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-400 transition-colors">
-            <Trash2 size={14} />
-          </button>
-        </div>
-      </div>
-    )
+  const CATEGORY_COLORS: Record<string, string> = {
+    'Wonen': 'bg-blue-100 text-blue-700', 'Eten & drinken': 'bg-orange-100 text-orange-700',
+    'Transport': 'bg-violet-100 text-violet-700', 'Gezondheid': 'bg-emerald-100 text-emerald-700',
+    'Inkomen': 'bg-green-100 text-green-700', 'Belasting': 'bg-red-100 text-red-700',
+    'Zakelijk': 'bg-indigo-100 text-indigo-700', 'Abonnementen': 'bg-pink-100 text-pink-700',
+    'Overig': 'bg-slate-100 text-slate-700',
   }
 
   return (
@@ -375,111 +285,14 @@ export default function AdministratiePage() {
           <h1 className="text-2xl font-semibold">Administratie</h1>
           <p className="text-sm text-slate-500 mt-1">Bankrekeningen, transacties & overzichten.</p>
         </div>
-        <div className="flex items-center gap-2">
-          {uncategorizedCount > 0 && (
-            <button onClick={categorizeAll} disabled={categorizing}
-              className="flex items-center gap-2 px-4 py-2 bg-violet-500 hover:bg-violet-600 text-white text-sm font-medium rounded-xl transition-colors disabled:opacity-60">
-              <Sparkles size={15} />
-              {categorizing ? 'Categoriseren…' : `${uncategorizedCount} categoriseren`}
-            </button>
-          )}
-          <button onClick={() => setShowSettings(s => !s)}
-            className={cn('flex items-center gap-2 px-4 py-2 border rounded-xl text-sm font-medium transition-colors',
-              showSettings ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300')}>
-            <Settings size={15} />
-            Instellingen
-            {showSettings ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        {uncategorizedCount > 0 && (
+          <button onClick={categorizeAll} disabled={categorizing}
+            className="flex items-center gap-2 px-4 py-2 bg-violet-500 hover:bg-violet-600 text-white text-sm font-medium rounded-xl transition-colors disabled:opacity-60">
+            <Sparkles size={15} />
+            {categorizing ? 'Categoriseren…' : `${uncategorizedCount} categoriseren met AI`}
           </button>
-        </div>
+        )}
       </div>
-
-      {/* Settings panel */}
-      {showSettings && (
-        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-          <div className="flex border-b border-slate-100">
-            {(['rekeningen', 'jars', 'categorieen'] as SettingsTab[]).map(st => (
-              <button key={st} onClick={() => setSettingsTab(st)}
-                className={cn('px-5 py-3 text-sm font-medium transition-colors',
-                  settingsTab === st ? 'border-b-2 border-indigo-500 text-indigo-600' : 'text-slate-500 hover:text-slate-700')}>
-                {st === 'rekeningen' ? 'Rekeningen' : st === 'jars' ? 'Jars' : 'Categorieën'}
-              </button>
-            ))}
-          </div>
-
-          {settingsTab === 'rekeningen' && (
-            <div className="p-6 space-y-1">
-              {regularAccounts.map(a => <AccountRow key={a.id} account={a} />)}
-              {showAccountForm && newAccountType === 'account' ? (
-                <AccountFormFields />
-              ) : (
-                <button onClick={() => { setNewAccountType('account'); setShowAccountForm(true) }}
-                  className="flex items-center gap-2 text-sm text-indigo-600 hover:text-indigo-700 font-medium mt-3">
-                  <Plus size={14} /> Rekening toevoegen
-                </button>
-              )}
-            </div>
-          )}
-
-          {settingsTab === 'jars' && (
-            <div className="p-6 space-y-1">
-              <p className="text-sm text-slate-500 mb-4">
-                Een jar is een spaarpotje of rekening in een andere valuta. Je kunt transacties uploaden of overboeken naar/van een jar, net als een gewone rekening.
-              </p>
-              {jars.map(a => <AccountRow key={a.id} account={a} />)}
-              {showAccountForm && newAccountType === 'jar' ? (
-                <AccountFormFields />
-              ) : (
-                <button onClick={() => { setNewAccountType('jar'); setShowAccountForm(true) }}
-                  className="flex items-center gap-2 text-sm text-indigo-600 hover:text-indigo-700 font-medium mt-3">
-                  <Plus size={14} /> Jar toevoegen
-                </button>
-              )}
-            </div>
-          )}
-
-          {settingsTab === 'categorieen' && (
-            <div className="p-6 space-y-6">
-              <p className="text-sm text-slate-500">
-                Voeg leveranciers of trefwoorden toe per categorie. Transacties die dit trefwoord bevatten worden automatisch gecategoriseerd bij het uploaden.
-              </p>
-              <div className="flex gap-2">
-                <select value={newRuleCategory} onChange={e => setNewRuleCategory(e.target.value)}
-                  className="px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
-                  {CATEGORIES.map(c => <option key={c}>{c}</option>)}
-                </select>
-                <input type="text" placeholder="Leverancier of trefwoord…" value={newRuleKeyword}
-                  onChange={e => setNewRuleKeyword(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && addRule()}
-                  className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
-                <button onClick={addRule} disabled={!newRuleKeyword.trim() || savingRule}
-                  className="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50">
-                  <Plus size={14} />
-                </button>
-              </div>
-              <div className="space-y-4">
-                {CATEGORIES.map(cat => {
-                  const catRules = rulesByCategory[cat] || []
-                  if (catRules.length === 0) return null
-                  return (
-                    <div key={cat}>
-                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">{cat}</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {catRules.map(rule => (
-                          <span key={rule.id} className={cn('inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full', CATEGORY_COLORS[cat] || CATEGORY_COLORS['Overig'])}>
-                            {rule.keyword}
-                            <button onClick={() => deleteRule(rule.id)} className="opacity-60 hover:opacity-100 ml-0.5"><X size={11} /></button>
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )
-                })}
-                {rules.length === 0 && <p className="text-sm text-slate-400 italic">Nog geen regels ingesteld.</p>}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Main tabs */}
       <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-fit">
@@ -497,7 +310,6 @@ export default function AdministratiePage() {
           {/* ── OVERZICHT ── */}
           {tab === 'overzicht' && (
             <div className="space-y-8">
-              {/* Rekeningen totalen */}
               {Object.keys(balancesByCurrency).length > 0 && (
                 <div>
                   <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Totaal saldo</h2>
@@ -512,7 +324,6 @@ export default function AdministratiePage() {
                 </div>
               )}
 
-              {/* Per rekening */}
               {regularAccounts.length > 0 && (
                 <div>
                   <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Rekeningen</h2>
@@ -532,7 +343,7 @@ export default function AdministratiePage() {
                           </div>
                           <div className="text-right space-y-0.5">
                             {acctBalances.length === 0 ? <span className="text-xs text-slate-400">Geen saldo</span>
-                              : acctBalances.map(b => <p key={b.id} className="text-sm font-semibold text-slate-900">{formatCurrency(b.balance, b.currency)}</p>)}
+                              : acctBalances.map(b => <p key={b.id} className="text-sm font-semibold">{formatCurrency(b.balance, b.currency)}</p>)}
                           </div>
                         </div>
                       )
@@ -541,7 +352,6 @@ export default function AdministratiePage() {
                 </div>
               )}
 
-              {/* Jars */}
               {jars.length > 0 && (
                 <div>
                   <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Jars</h2>
@@ -556,28 +366,23 @@ export default function AdministratiePage() {
                             </div>
                             <p className="text-sm font-semibold text-slate-900 truncate">{jar.name}</p>
                           </div>
-                          {jarBalances.length === 0
-                            ? <p className="text-xs text-slate-400">Geen saldo</p>
+                          {jarBalances.length === 0 ? <p className="text-xs text-slate-400">Geen saldo</p>
                             : jarBalances.map(b => (
                               <div key={b.id}>
                                 <p className="text-xl font-semibold text-slate-900">{formatCurrency(b.balance, b.currency)}</p>
                                 <p className="text-xs text-amber-600 font-medium mt-0.5">{b.currency}</p>
                               </div>
-                            ))
-                          }
+                            ))}
                         </div>
                       )
                     })}
                   </div>
                   {Object.keys(jarBalancesByCurrency).length > 0 && (
-                    <p className="text-xs text-slate-400 mt-2">
-                      Totaal in jars: {Object.entries(jarBalancesByCurrency).map(([c, v]) => formatCurrency(v, c)).join(' · ')}
-                    </p>
+                    <p className="text-xs text-slate-400 mt-2">Totaal in jars: {Object.entries(jarBalancesByCurrency).map(([c, v]) => formatCurrency(v, c)).join(' · ')}</p>
                   )}
                 </div>
               )}
 
-              {/* Categories */}
               {topCategories.length > 0 && (
                 <div>
                   <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Uitgaven per categorie</h2>
@@ -587,8 +392,8 @@ export default function AdministratiePage() {
                       return (
                         <div key={cat} className="bg-white border border-slate-200 rounded-xl px-4 py-3">
                           <div className="flex items-center justify-between mb-1.5">
-                            <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full', CATEGORY_COLORS[cat] || CATEGORY_COLORS['Overig'])}>{cat}</span>
-                            <span className="text-sm font-semibold text-slate-900">{formatCurrency(amount, 'EUR')}</span>
+                            <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full', CATEGORY_COLORS[cat] || 'bg-slate-100 text-slate-700')}>{cat}</span>
+                            <span className="text-sm font-semibold">{formatCurrency(amount, 'EUR')}</span>
                           </div>
                           <div className="w-full bg-slate-100 rounded-full h-1.5">
                             <div className="bg-indigo-400 h-1.5 rounded-full" style={{ width: `${pct}%` }} />
@@ -605,11 +410,12 @@ export default function AdministratiePage() {
           {/* ── TRANSACTIES ── */}
           {tab === 'transacties' && (
             <div className="space-y-4">
+              {/* Filters */}
               <div className="flex gap-2 flex-wrap items-center">
                 <div className="relative">
                   <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                   <input type="text" placeholder="Zoeken…" value={search} onChange={e => setSearch(e.target.value)}
-                    className="pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 w-48" />
+                    className="pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 w-44" />
                 </div>
                 <select value={filterAccount} onChange={e => setFilterAccount(e.target.value)}
                   className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
@@ -623,10 +429,15 @@ export default function AdministratiePage() {
                   <option value="expense">Uitgaven</option>
                   <option value="transfer">Overboekingen</option>
                 </select>
+                <select value={filterVendor} onChange={e => setFilterVendor(e.target.value)}
+                  className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
+                  <option value="">Alle leveranciers</option>
+                  {vendorNames.map(v => <option key={v} value={v}>{v}</option>)}
+                </select>
                 <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)}
                   className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
                   <option value="">Alle categorieën</option>
-                  {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                  {categoryNames.map(c => <option key={c}>{c}</option>)}
                 </select>
                 <div className="relative ml-auto">
                   <ArrowUpDown size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -648,10 +459,11 @@ export default function AdministratiePage() {
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b border-slate-100">
-                          <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Datum</th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide w-24">Datum</th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide w-36 hidden md:table-cell">Leverancier</th>
                           <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Omschrijving</th>
                           <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden md:table-cell">Categorie</th>
-                          <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden lg:table-cell">Koppeling</th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden lg:table-cell w-32">Koppeling</th>
                           <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Bedrag</th>
                         </tr>
                       </thead>
@@ -664,46 +476,76 @@ export default function AdministratiePage() {
                           return (
                             <>
                               <tr key={tx.id} className={cn('border-b border-slate-50 transition-colors', isLinking ? 'bg-indigo-50' : 'hover:bg-slate-50')}>
-                                <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{formatDate(tx.date)}</td>
-                                <td className="px-4 py-3 text-slate-800 max-w-xs truncate">{tx.description}</td>
-                                <td className="px-4 py-3 hidden md:table-cell">
-                                  {tx.category
-                                    ? <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full', CATEGORY_COLORS[tx.category] || CATEGORY_COLORS['Overig'])}>{tx.category}</span>
-                                    : <span className="text-xs text-slate-400 italic">Niet gecategoriseerd</span>}
+                                <td className="px-4 py-2.5 text-xs text-slate-500 whitespace-nowrap">{formatDate(tx.date)}</td>
+
+                                {/* Leverancier — clickable */}
+                                <td className="px-4 py-2.5 hidden md:table-cell">
+                                  <button
+                                    onClick={e => openCellDropdown(tx, 'vendor', e)}
+                                    className={cn(
+                                      'text-xs px-2 py-1 rounded-lg border transition-colors text-left w-full truncate max-w-[130px]',
+                                      cellDropdown?.txId === tx.id && cellDropdown.field === 'vendor'
+                                        ? 'border-indigo-400 bg-indigo-50 text-indigo-700'
+                                        : tx.vendor
+                                          ? 'border-transparent hover:border-slate-200 text-slate-800 font-medium'
+                                          : 'border-transparent hover:border-slate-200 text-slate-400 italic'
+                                    )}
+                                  >
+                                    {tx.vendor || '—'}
+                                  </button>
                                 </td>
-                                <td className="px-4 py-3 hidden lg:table-cell">
+
+                                <td className="px-4 py-2.5 text-slate-700 max-w-xs truncate text-xs">{tx.description}</td>
+
+                                {/* Categorie — clickable */}
+                                <td className="px-4 py-2.5 hidden md:table-cell">
+                                  <button
+                                    onClick={e => openCellDropdown(tx, 'category', e)}
+                                    className={cn(
+                                      'text-xs font-medium px-2 py-0.5 rounded-full border transition-colors',
+                                      cellDropdown?.txId === tx.id && cellDropdown.field === 'category'
+                                        ? 'border-indigo-400 bg-indigo-50 text-indigo-700'
+                                        : tx.category
+                                          ? cn('border-transparent', CATEGORY_COLORS[tx.category] || 'bg-slate-100 text-slate-700')
+                                          : 'border-slate-200 text-slate-400 italic'
+                                    )}
+                                  >
+                                    {tx.category || 'Categorie…'}
+                                  </button>
+                                </td>
+
+                                {/* Koppeling */}
+                                <td className="px-4 py-2.5 hidden lg:table-cell">
                                   {tx.type === 'transfer' && (
                                     linkedTx ? (
                                       <div className="flex items-center gap-1.5">
-                                        <span className="text-xs bg-indigo-50 text-indigo-600 border border-indigo-200 px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
-                                          <Link2 size={10} />
+                                        <span className="text-xs bg-indigo-50 text-indigo-600 border border-indigo-200 px-2 py-0.5 rounded-full font-medium flex items-center gap-1 truncate max-w-[100px]">
+                                          <Link2 size={10} className="shrink-0" />
                                           {accountMap[linkedTx.account_id]?.name ?? '—'}
                                         </span>
-                                        <button onClick={() => unlinkTransaction(tx)} title="Ontkoppelen"
-                                          className="text-slate-300 hover:text-red-400 transition-colors">
-                                          <Unlink size={12} />
-                                        </button>
+                                        <button onClick={() => unlinkTransaction(tx)} className="text-slate-300 hover:text-red-400 transition-colors shrink-0"><Unlink size={12} /></button>
                                       </div>
                                     ) : (
                                       <button onClick={() => openLinkPanel(tx)}
                                         className={cn('flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border transition-colors',
                                           isLinking ? 'bg-indigo-100 border-indigo-300 text-indigo-700' : 'border-slate-200 text-slate-400 hover:border-indigo-300 hover:text-indigo-600')}>
-                                        <Link2 size={10} />
-                                        Koppelen
+                                        <Link2 size={10} />Koppelen
                                       </button>
                                     )
                                   )}
                                 </td>
-                                <td className={cn('px-4 py-3 text-right font-semibold whitespace-nowrap',
+
+                                <td className={cn('px-4 py-2.5 text-right font-semibold whitespace-nowrap text-sm',
                                   tx.type === 'income' ? 'text-emerald-600' : tx.type === 'expense' ? 'text-red-500' : 'text-slate-500')}>
                                   {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : ''}
                                   {formatCurrency(tx.amount, tx.currency)}
                                 </td>
                               </tr>
-                              {/* Koppel-panel */}
+
+                              {/* Link panel */}
                               {isLinking && (
                                 <tr key={`${tx.id}-link`} className="bg-indigo-50 border-b border-indigo-100">
-                                  <td colSpan={5} className="px-4 py-3">
+                                  <td colSpan={6} className="px-4 py-3">
                                     <p className="text-xs font-semibold text-indigo-700 mb-2">Koppel aan tegenpost:</p>
                                     {linkCandidates.length === 0
                                       ? <p className="text-xs text-slate-400 italic">Geen kandidaten gevonden binnen 7 dagen op andere rekeningen.</p>
@@ -730,12 +572,51 @@ export default function AdministratiePage() {
                       </tbody>
                     </table>
                     {filtered.length > 200 && (
-                      <p className="text-xs text-slate-400 text-center py-3">
-                        Toont 200 van {filtered.length} — gebruik filters om te verfijnen
-                      </p>
+                      <p className="text-xs text-slate-400 text-center py-3">Toont 200 van {filtered.length} — gebruik filters om te verfijnen</p>
                     )}
                   </div>
                 )}
+
+              {/* Cell edit dropdown (fixed overlay) */}
+              {cellDropdown && (
+                <div
+                  ref={dropdownRef}
+                  style={{ position: 'fixed', top: cellDropdown.top, left: cellDropdown.left, zIndex: 200 }}
+                  className="bg-white border border-slate-200 rounded-xl shadow-xl w-60 overflow-hidden"
+                >
+                  <div className="p-2 border-b border-slate-100">
+                    <input
+                      autoFocus
+                      type="text"
+                      placeholder={cellDropdown.field === 'vendor' ? 'Leverancier zoeken…' : 'Categorie zoeken…'}
+                      value={cellSearch}
+                      onChange={e => setCellSearch(e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400"
+                    />
+                  </div>
+                  <div className="max-h-52 overflow-y-auto">
+                    {cellDropdown.field === 'vendor' && (
+                      <button
+                        onClick={() => updateCellValue(cellDropdown.txId, 'vendor', '')}
+                        className="w-full text-left px-3 py-2 text-xs text-slate-400 italic hover:bg-slate-50 transition-colors border-b border-slate-50"
+                      >
+                        — Geen leverancier
+                      </button>
+                    )}
+                    {filteredDropdownOptions.length === 0 ? (
+                      <p className="text-xs text-slate-400 italic px-3 py-3">Geen resultaten.</p>
+                    ) : filteredDropdownOptions.map(opt => (
+                      <button
+                        key={opt}
+                        onClick={() => updateCellValue(cellDropdown.txId, cellDropdown.field, opt)}
+                        className="w-full text-left px-3 py-2 text-sm text-slate-800 hover:bg-indigo-50 hover:text-indigo-700 transition-colors"
+                      >
+                        {opt}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -750,16 +631,8 @@ export default function AdministratiePage() {
                   <select value={uploadAccount} onChange={e => setUploadAccount(e.target.value)}
                     className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
                     <option value="">Kies een rekening of jar…</option>
-                    {regularAccounts.length > 0 && (
-                      <optgroup label="Rekeningen">
-                        {regularAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                      </optgroup>
-                    )}
-                    {jars.length > 0 && (
-                      <optgroup label="Jars">
-                        {jars.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                      </optgroup>
-                    )}
+                    {regularAccounts.length > 0 && <optgroup label="Rekeningen">{regularAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</optgroup>}
+                    {jars.length > 0 && <optgroup label="Jars">{jars.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</optgroup>}
                   </select>
                 </div>
                 <div className="space-y-1.5">
@@ -785,22 +658,20 @@ export default function AdministratiePage() {
                     {uploadResult.skipped > 0 && `, ${uploadResult.skipped} duplicaten overgeslagen`}
                   </div>
                 )}
-                {uploadError && (
-                  <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">✗ {uploadError}</div>
-                )}
+                {uploadError && <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">✗ {uploadError}</div>}
               </div>
               <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-700">
-                <strong>Tip:</strong> Stel leveranciers in via Instellingen → Categorieën voor automatische categorisering. Na het uploaden kun je transfers koppelen via Transacties → Koppelen.
+                <strong>Tip:</strong> Stel leveranciers in via <a href="/settings" className="underline">Instellingen</a> voor automatische categorisering bij het uploaden.
               </div>
             </div>
           )}
 
           {/* ── OVERBOEKING ── */}
           {tab === 'overboeking' && (
-            <div className="max-w-lg space-y-6">
+            <div className="max-w-lg">
               <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4">
                 <h2 className="font-semibold text-slate-900">Overboeking tussen rekeningen</h2>
-                <p className="text-sm text-slate-500">Vul verstuurd en ontvangen bedrag in. Wisselkoers wordt automatisch berekend. De twee transacties worden automatisch gekoppeld.</p>
+                <p className="text-sm text-slate-500">Vul verstuurd en ontvangen bedrag in. Wisselkoers wordt automatisch berekend.</p>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <label className="text-xs font-medium text-slate-600">Van</label>
@@ -829,8 +700,7 @@ export default function AdministratiePage() {
                         className="w-20 px-2 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
                         {['EUR','USD','IDR','GBP','SGD'].map(c => <option key={c}>{c}</option>)}
                       </select>
-                      <input type="number" placeholder="0.00" value={transfer.from_amount}
-                        onChange={e => setTransfer(t => ({ ...t, from_amount: e.target.value }))}
+                      <input type="number" placeholder="0.00" value={transfer.from_amount} onChange={e => setTransfer(t => ({ ...t, from_amount: e.target.value }))}
                         className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
                     </div>
                   </div>
@@ -841,8 +711,7 @@ export default function AdministratiePage() {
                         className="w-20 px-2 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
                         {['IDR','EUR','USD','GBP','SGD'].map(c => <option key={c}>{c}</option>)}
                       </select>
-                      <input type="number" placeholder="0.00" value={transfer.to_amount}
-                        onChange={e => setTransfer(t => ({ ...t, to_amount: e.target.value }))}
+                      <input type="number" placeholder="0.00" value={transfer.to_amount} onChange={e => setTransfer(t => ({ ...t, to_amount: e.target.value }))}
                         className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
                     </div>
                   </div>
@@ -850,13 +719,12 @@ export default function AdministratiePage() {
                 {transfer.from_amount && transfer.to_amount && parseFloat(transfer.from_amount) > 0 && (
                   <div className="bg-slate-50 rounded-xl px-4 py-3 text-sm text-slate-600">
                     <span className="font-medium">Berekende koers: </span>
-                    1 {transfer.from_currency} = {(parseFloat(transfer.to_amount) / (parseFloat(transfer.from_amount) - (parseFloat(transfer.fee_amount || '0')))).toLocaleString('nl-NL', { maximumFractionDigits: 4 })} {transfer.to_currency}
+                    1 {transfer.from_currency} = {(parseFloat(transfer.to_amount) / (parseFloat(transfer.from_amount) - parseFloat(transfer.fee_amount || '0'))).toLocaleString('nl-NL', { maximumFractionDigits: 4 })} {transfer.to_currency}
                   </div>
                 )}
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-slate-600">Kosten ({transfer.from_currency}, optioneel)</label>
-                  <input type="number" placeholder="0.00" value={transfer.fee_amount}
-                    onChange={e => setTransfer(t => ({ ...t, fee_amount: e.target.value }))}
+                  <input type="number" placeholder="0.00" value={transfer.fee_amount} onChange={e => setTransfer(t => ({ ...t, fee_amount: e.target.value }))}
                     className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
@@ -867,8 +735,7 @@ export default function AdministratiePage() {
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-xs font-medium text-slate-600">Omschrijving (optioneel)</label>
-                    <input type="text" placeholder="Overboeking naar…" value={transfer.description}
-                      onChange={e => setTransfer(t => ({ ...t, description: e.target.value }))}
+                    <input type="text" placeholder="Overboeking naar…" value={transfer.description} onChange={e => setTransfer(t => ({ ...t, description: e.target.value }))}
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
                   </div>
                 </div>

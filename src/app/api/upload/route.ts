@@ -29,17 +29,17 @@ export async function POST(req: NextRequest) {
 
   const existingHashes = new Set((existing || []).map((r: { import_hash: string }) => r.import_hash))
 
-  // Load category rules for auto-matching
-  const { data: rulesData } = await supabase
-    .from('admin_category_rules')
-    .select('category, keyword')
+  // Load vendors for auto-matching
+  const { data: vendorData } = await supabase
+    .from('admin_vendors')
+    .select('name, category')
     .eq('user_id', user.id)
-  const rules: { category: string; keyword: string }[] = rulesData || []
+  const vendors: { name: string; category: string }[] = vendorData || []
 
-  function matchCategory(description: string): string | null {
+  function matchVendor(description: string): { vendor: string; category: string } | null {
     const lower = description.toLowerCase()
-    for (const rule of rules) {
-      if (lower.includes(rule.keyword)) return rule.category
+    for (const v of vendors) {
+      if (lower.includes(v.name.toLowerCase())) return { vendor: v.name, category: v.category }
     }
     return null
   }
@@ -47,14 +47,15 @@ export async function POST(req: NextRequest) {
   const toInsert = parsed
     .filter(t => !existingHashes.has(t.import_hash))
     .map(t => {
-      const category = matchCategory(t.description)
+      const match = matchVendor(t.description)
       return {
         ...t,
         account_id,
         user_id: user.id,
         original_description: t.description,
         source: bank,
-        category: category ?? undefined,
+        vendor: match?.vendor ?? undefined,
+        category: match?.category ?? undefined,
         ai_categorized: false,
       }
     })

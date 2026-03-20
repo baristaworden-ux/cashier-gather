@@ -36,6 +36,7 @@ export interface Transaction {
   category?: string
   subcategory?: string
   notes?: string
+  vendor?: string
   ai_categorized: boolean
   source: BankSource
   import_hash: string // dedup
@@ -58,6 +59,22 @@ export interface CategoryRule {
   user_id: string
   category: string
   keyword: string
+  created_at: string
+}
+
+export interface AdminCategory {
+  id: string
+  user_id: string
+  name: string
+  type: 'expense' | 'income'
+  created_at: string
+}
+
+export interface Vendor {
+  id: string
+  user_id: string
+  name: string
+  category: string
   created_at: string
 }
 

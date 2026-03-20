@@ -4,13 +4,6 @@ import Anthropic from '@anthropic-ai/sdk'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
-const CATEGORIES = [
-  'Wonen', 'Eten & drinken', 'Transport', 'Gezondheid', 'Inkomen',
-  'Belasting', 'Zakelijk', 'Abonnementen', 'Verzekeringen', 'Sparen',
-  'Entertainment', 'Kleding', 'Reizen', 'Opleiding', 'Familie',
-  'Overboekingen', 'Overig',
-]
-
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -18,6 +11,18 @@ export async function POST(req: NextRequest) {
 
   const { transaction_ids } = await req.json()
   if (!transaction_ids?.length) return NextResponse.json({ error: 'No transaction_ids' }, { status: 400 })
+
+  // Load user's categories and vendors
+  const [{ data: catData }, { data: vendorData }] = await Promise.all([
+    supabase.from('admin_categories').select('name, type').eq('user_id', user.id).order('name'),
+    supabase.from('admin_vendors').select('name, category').eq('user_id', user.id).order('name'),
+  ])
+
+  const categories = catData?.map(c => c.name) ?? [
+    'Wonen', 'Eten & drinken', 'Transport', 'Gezondheid', 'Inkomen',
+    'Belasting', 'Zakelijk', 'Abonnementen', 'Overboekingen', 'Overig',
+  ]
+  const vendors: { name: string; category: string }[] = vendorData || []
 
   const { data: transactions } = await supabase
     .from('admin_transactions')
@@ -27,28 +32,32 @@ export async function POST(req: NextRequest) {
 
   if (!transactions?.length) return NextResponse.json({ categorized: 0 })
 
-  // Batch in groups of 50
   const BATCH = 50
   let totalCategorized = 0
 
   for (let i = 0; i < transactions.length; i += BATCH) {
     const batch = transactions.slice(i, i + BATCH)
 
-    const prompt = `Categoriseer de volgende banktransacties. Geef voor elke transactie één categorie terug uit deze lijst:
-${CATEGORIES.join(', ')}
+    const vendorHint = vendors.length > 0
+      ? `\nBekende leveranciers (naam → standaard categorie):\n${vendors.map(v => `- ${v.name} → ${v.category}`).join('\n')}`
+      : ''
 
-Transacties (JSON array met id, description, amount, currency, type):
+    const prompt = `Analyseer de volgende banktransacties. Identificeer voor elke transactie:
+1. De leverancier (vendor) — de naam van het bedrijf of persoon in de omschrijving. Gebruik een van de bekende leveranciers als die overeenkomt, anders een korte herkenbare naam.
+2. De categorie — kies uit: ${categories.join(', ')}
+${vendorHint}
+
+Transacties:
 ${JSON.stringify(batch)}
 
-Geef je antwoord ALLEEN als een JSON array in dit formaat:
-[{"id": "...", "category": "...", "subcategory": "..."}]
+Geef je antwoord ALLEEN als een JSON array:
+[{"id": "...", "vendor": "...", "category": "..."}]
 
 Regels:
-- Gebruik altijd een categorie uit de lijst
-- subcategory is optioneel (vrij tekst, max 30 tekens)
+- vendor: korte naam, bijv. "Albert Heijn", "NS", "Spotify". Leeg string als echt onbekend.
+- category: altijd een waarde uit de lijst
 - Voor inkomsten: gebruik "Inkomen" of "Overboekingen"
-- Voor spaaroverdrachten: gebruik "Sparen"
-- Antwoord ALLEEN met de JSON array, geen uitleg`
+- Antwoord ALLEEN met de JSON array`
 
     const message = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
@@ -61,12 +70,16 @@ Regels:
     try {
       const jsonMatch = text.match(/\[[\s\S]*\]/)
       if (!jsonMatch) continue
-      const results: { id: string; category: string; subcategory?: string }[] = JSON.parse(jsonMatch[0])
+      const results: { id: string; vendor: string; category: string }[] = JSON.parse(jsonMatch[0])
 
       for (const result of results) {
         await supabase
           .from('admin_transactions')
-          .update({ category: result.category, subcategory: result.subcategory || null, ai_categorized: true })
+          .update({
+            vendor: result.vendor || null,
+            category: result.category,
+            ai_categorized: true,
+          })
           .eq('id', result.id)
           .eq('user_id', user.id)
         totalCategorized++
