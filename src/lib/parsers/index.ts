@@ -70,26 +70,30 @@ export function parseWise(csv: string): ParsedTransaction[] {
 export function parseRevolut(csv: string): ParsedTransaction[] {
   const lines = csv.trim().split('\n')
   const header = lines[0].split(',').map(h => h.replace(/^"|"$/g, '').trim())
+  const startedIdx = header.indexOf('Started Date')
   const dateIdx = header.indexOf('Completed Date')
   const amountIdx = header.indexOf('Amount')
   const currencyIdx = header.indexOf('Currency')
   const descIdx = header.indexOf('Description')
   const stateIdx = header.indexOf('State')
+  const balanceIdx = header.indexOf('Balance')
 
   return lines.slice(1).filter(Boolean).map(line => {
     const cols = parseCsvLine(line)
     if (cols[stateIdx] !== 'COMPLETED') return null
     const amount = parseFloat(cols[amountIdx])
-    const date = cols[dateIdx]?.slice(0, 10) ?? ''
+    const date = normalizeDate(cols[dateIdx]?.slice(0, 10) ?? '')
+    const started = cols[startedIdx] ?? ''
     const desc = cols[descIdx] ?? ''
     const currency = cols[currencyIdx] ?? 'EUR'
+    const balance = cols[balanceIdx] ?? ''
     return {
       date,
       description: desc,
       amount: Math.abs(amount),
       currency,
       type: amount >= 0 ? 'income' : 'expense',
-      import_hash: hash(`revolut-${date}-${desc}-${amount}-${currency}`),
+      import_hash: hash(`revolut-${started}-${date}-${desc}-${amount}-${currency}-${balance}`),
     }
   }).filter(Boolean) as ParsedTransaction[]
 }
