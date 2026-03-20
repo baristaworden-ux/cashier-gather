@@ -35,25 +35,22 @@ export default function HubPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {TOOLS.map(tool => {
           const Icon = tool.icon
-          const Wrapper = tool.external ? 'a' : Link
-          const extraProps = tool.external ? { href: tool.href, target: '_blank', rel: 'noopener noreferrer' } : { href: tool.href }
-          return (
-            // @ts-expect-error dynamic tag
-            <Wrapper
-              key={tool.id}
-              {...extraProps}
-              className="group bg-white border border-slate-200 rounded-2xl p-6 flex flex-col gap-4 hover:border-slate-300 hover:shadow-md transition-all cursor-pointer"
-            >
+          const cardClass = "group bg-white border border-slate-200 rounded-2xl p-6 flex flex-col gap-4 hover:border-slate-300 hover:shadow-md transition-all cursor-pointer"
+          const inner = (
+            <>
               <div className={`w-12 h-12 rounded-xl ${tool.color} flex items-center justify-center`}>
                 <Icon size={22} className="text-white" />
               </div>
               <div>
-                <h2 className="font-semibold text-slate-900 group-hover:text-indigo-600 transition-colors">
-                  {tool.name}
-                </h2>
+                <h2 className="font-semibold text-slate-900 group-hover:text-indigo-600 transition-colors">{tool.name}</h2>
                 <p className="text-sm text-slate-500 mt-0.5">{tool.description}</p>
               </div>
-            </Wrapper>
+            </>
+          )
+          return tool.external ? (
+            <a key={tool.id} href={tool.href} target="_blank" rel="noopener noreferrer" className={cardClass}>{inner}</a>
+          ) : (
+            <Link key={tool.id} href={tool.href} className={cardClass}>{inner}</Link>
           )
         })}
 
