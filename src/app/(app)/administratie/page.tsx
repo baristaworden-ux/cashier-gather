@@ -54,6 +54,7 @@ export default function AdministratiePage() {
   const [uploadCurrency, setUploadCurrency] = useState('EUR')
   const [uploading, setUploading] = useState(false)
   const [uploadResult, setUploadResult] = useState<{ imported: number; skipped: number } | null>(null)
+  const [uploadError, setUploadError] = useState<string | null>(null)
 
   // Transfer state
   const [transfer, setTransfer] = useState({
@@ -138,15 +139,18 @@ export default function AdministratiePage() {
     if (!uploadFile || !uploadAccount) return
     setUploading(true)
     setUploadResult(null)
+    setUploadError(null)
     const formData = new FormData()
     formData.append('file', uploadFile)
     formData.append('account_id', uploadAccount)
     formData.append('currency', uploadCurrency)
     const res = await fetch('/api/upload', { method: 'POST', body: formData })
+    const data = await res.json()
     if (res.ok) {
-      const data = await res.json()
       setUploadResult(data)
       await loadData()
+    } else {
+      setUploadError(data.error || 'Er is een fout opgetreden.')
     }
     setUploading(false)
   }
@@ -447,6 +451,11 @@ export default function AdministratiePage() {
                   <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-sm text-emerald-700">
                     ✓ <strong>{uploadResult.imported}</strong> transacties geïmporteerd
                     {uploadResult.skipped > 0 && `, ${uploadResult.skipped} duplicaten overgeslagen`}
+                  </div>
+                )}
+                {uploadError && (
+                  <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">
+                    ✗ {uploadError}
                   </div>
                 )}
               </div>
