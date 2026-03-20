@@ -40,7 +40,7 @@ export default function SettingsPage() {
   const [accounts, setAccounts] = useState<Account[]>([])
   const [balances, setBalances] = useState<AccountBalance[]>([])
   const [newAccount, setNewAccount] = useState({ name: '', bank: 'rabobank', account_number: '' })
-  const [newJar, setNewJar] = useState({ name: '', currency: 'EUR' })
+  const [newJar, setNewJar] = useState({ name: '', currency: 'EUR', linked_account_id: '' })
   const [savingAccount, setSavingAccount] = useState(false)
   const [savingJar, setSavingJar] = useState(false)
 
@@ -93,9 +93,9 @@ export default function SettingsPage() {
     setSavingJar(true)
     const res = await fetch('/api/accounts', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newJar.name, bank: 'manual', account_type: 'jar', currency: newJar.currency }),
+      body: JSON.stringify({ name: newJar.name, bank: 'manual', account_type: 'jar', currency: newJar.currency, linked_account_id: newJar.linked_account_id || null }),
     })
-    if (res.ok) { setNewJar({ name: '', currency: 'EUR' }); await loadData() }
+    if (res.ok) { setNewJar({ name: '', currency: 'EUR', linked_account_id: '' }); await loadData() }
     setSavingJar(false)
   }
 
@@ -184,9 +184,16 @@ export default function SettingsPage() {
           <div>
             <p className="text-sm font-medium text-slate-900">{account.name}</p>
             <p className="text-xs text-slate-400">
-              {isJar
-                ? `Jar · ${account.currency || '—'}`
-                : `${BANK_LABELS[account.bank]}${account.account_number ? ` · ${account.account_number}` : ''}`}
+              {isJar ? (
+                <>
+                  {account.currency || '—'}
+                  {account.linked_account_id && (
+                    <> · {accounts.find(a => a.id === account.linked_account_id)?.name ?? '?'}</>
+                  )}
+                </>
+              ) : (
+                `${BANK_LABELS[account.bank]}${account.account_number ? ` · ${account.account_number}` : ''}`
+              )}
             </p>
           </div>
         </div>
@@ -252,14 +259,19 @@ export default function SettingsPage() {
               {jars.map(a => <AccountRow key={a.id} account={a} />)}
             </div>
           )}
-          <div className={cn('flex gap-2 px-4 py-3', jars.length > 0 && 'border-t border-slate-100')}>
+          <div className={cn('flex flex-wrap gap-2 px-4 py-3', jars.length > 0 && 'border-t border-slate-100')}>
             <input type="text" placeholder="Naam jar…" value={newJar.name}
               onChange={e => setNewJar(j => ({ ...j, name: e.target.value }))}
               onKeyDown={e => e.key === 'Enter' && addJar()}
-              className="flex-1 px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+              className="flex-1 min-w-32 px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
             <select value={newJar.currency} onChange={e => setNewJar(j => ({ ...j, currency: e.target.value }))}
               className="w-24 px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
               {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select value={newJar.linked_account_id} onChange={e => setNewJar(j => ({ ...j, linked_account_id: e.target.value }))}
+              className="flex-1 min-w-36 px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
+              <option value="">Geen gekoppelde rekening</option>
+              {regularAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
             <button onClick={addJar} disabled={!newJar.name.trim() || savingJar}
               className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm transition-colors disabled:opacity-50">

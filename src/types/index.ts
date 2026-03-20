@@ -10,6 +10,7 @@ export interface Account {
   account_type: AccountType
   account_number?: string
   currency?: string
+  linked_account_id?: string
   color: string
   icon?: string
   created_at: string
