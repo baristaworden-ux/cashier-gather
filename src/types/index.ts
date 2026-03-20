@@ -9,6 +9,7 @@ export interface Account {
   bank: BankSource
   account_type: AccountType
   account_number?: string
+  currency?: string
   color: string
   icon?: string
   created_at: string

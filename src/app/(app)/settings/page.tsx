@@ -3,9 +3,20 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { LogOut, Plus, Trash2, Search } from 'lucide-react'
-import { AdminCategory, Vendor } from '@/types'
-import { cn } from '@/lib/utils'
+import { LogOut, Plus, Trash2, Search, PiggyBank } from 'lucide-react'
+import { AdminCategory, Vendor, Account, AccountBalance } from '@/types'
+import { cn, formatCurrency } from '@/lib/utils'
+
+const CURRENCIES = ['EUR', 'USD', 'IDR', 'GBP', 'SGD', 'AUD', 'CHF', 'JPY']
+
+const BANK_LABELS: Record<string, string> = {
+  rabobank: 'Rabobank', wise: 'Wise', revolut: 'Revolut',
+  ocbc: 'OCBC Indonesia', manual: 'Handmatig',
+}
+const BANK_COLORS: Record<string, string> = {
+  rabobank: 'bg-orange-500', wise: 'bg-green-500', revolut: 'bg-violet-500',
+  ocbc: 'bg-red-500', manual: 'bg-slate-400',
+}
 
 const DEFAULT_CATEGORIES = [
   { name: 'Wonen', type: 'expense' as const },
@@ -25,6 +36,14 @@ export default function SettingsPage() {
   const router = useRouter()
   const [signingOut, setSigningOut] = useState(false)
 
+  // Accounts & jars
+  const [accounts, setAccounts] = useState<Account[]>([])
+  const [balances, setBalances] = useState<AccountBalance[]>([])
+  const [newAccount, setNewAccount] = useState({ name: '', bank: 'rabobank', account_number: '' })
+  const [newJar, setNewJar] = useState({ name: '', currency: 'EUR' })
+  const [savingAccount, setSavingAccount] = useState(false)
+  const [savingJar, setSavingJar] = useState(false)
+
   // Categories
   const [categories, setCategories] = useState<AdminCategory[]>([])
   const [newCatName, setNewCatName] = useState('')
@@ -39,18 +58,14 @@ export default function SettingsPage() {
   const [savingVendor, setSavingVendor] = useState(false)
 
   async function loadData() {
-    const [catRes, vendorRes] = await Promise.all([
+    const [accRes, catRes, vendorRes] = await Promise.all([
+      fetch('/api/accounts'),
       fetch('/api/categories'),
       fetch('/api/vendors'),
     ])
-    if (catRes.ok) {
-      const { categories } = await catRes.json()
-      setCategories(categories || [])
-    }
-    if (vendorRes.ok) {
-      const { vendors } = await vendorRes.json()
-      setVendors(vendors || [])
-    }
+    if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []) }
+    if (catRes.ok) { const { categories } = await catRes.json(); setCategories(categories || []) }
+    if (vendorRes.ok) { const { vendors } = await vendorRes.json(); setVendors(vendors || []) }
   }
 
   useEffect(() => { loadData() }, [])
@@ -61,12 +76,41 @@ export default function SettingsPage() {
     router.push('/login')
   }
 
+  // ── Accounts ──
+  async function addAccount() {
+    if (!newAccount.name.trim()) return
+    setSavingAccount(true)
+    const res = await fetch('/api/accounts', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...newAccount, account_type: 'account' }),
+    })
+    if (res.ok) { setNewAccount({ name: '', bank: 'rabobank', account_number: '' }); await loadData() }
+    setSavingAccount(false)
+  }
+
+  async function addJar() {
+    if (!newJar.name.trim()) return
+    setSavingJar(true)
+    const res = await fetch('/api/accounts', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newJar.name, bank: 'manual', account_type: 'jar', currency: newJar.currency }),
+    })
+    if (res.ok) { setNewJar({ name: '', currency: 'EUR' }); await loadData() }
+    setSavingJar(false)
+  }
+
+  async function deleteAccount(id: string, type: string) {
+    if (!confirm(`${type === 'jar' ? 'Jar' : 'Rekening'} verwijderen? Alle transacties worden ook verwijderd.`)) return
+    await fetch(`/api/accounts?id=${id}`, { method: 'DELETE' })
+    await loadData()
+  }
+
+  // ── Categories ──
   async function addCategory() {
     if (!newCatName.trim()) return
     setSavingCat(true)
     const res = await fetch('/api/categories', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: newCatName.trim(), type: newCatType }),
     })
     if (res.ok) {
@@ -82,12 +126,24 @@ export default function SettingsPage() {
     setCategories(c => c.filter(x => x.id !== id))
   }
 
+  async function seedDefaultCategories() {
+    for (const cat of DEFAULT_CATEGORIES) {
+      if (!categories.find(c => c.name === cat.name)) {
+        const res = await fetch('/api/categories', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(cat),
+        })
+        if (res.ok) { const { category } = await res.json(); setCategories(c => [...c, category]) }
+      }
+    }
+  }
+
+  // ── Vendors ──
   async function addVendor() {
     if (!newVendorName.trim()) return
     setSavingVendor(true)
     const res = await fetch('/api/vendors', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: newVendorName.trim(), category: newVendorCategory }),
     })
     if (res.ok) {
@@ -104,34 +160,114 @@ export default function SettingsPage() {
     setVendors(v => v.filter(x => x.id !== id))
   }
 
-  async function seedDefaultCategories() {
-    for (const cat of DEFAULT_CATEGORIES) {
-      if (!categories.find(c => c.name === cat.name)) {
-        const res = await fetch('/api/categories', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(cat),
-        })
-        if (res.ok) {
-          const { category } = await res.json()
-          setCategories(c => [...c, category])
-        }
-      }
-    }
-  }
-
+  // ── Derived ──
+  const regularAccounts = accounts.filter(a => a.account_type !== 'jar')
+  const jars = accounts.filter(a => a.account_type === 'jar')
   const categoryNames = categories.map(c => c.name)
   const filteredVendors = vendors.filter(v =>
     !vendorSearch || v.name.toLowerCase().includes(vendorSearch.toLowerCase()) ||
     v.category?.toLowerCase().includes(vendorSearch.toLowerCase())
   )
 
+  function AccountRow({ account }: { account: Account }) {
+    const acctBalances = balances.filter(b => b.account_id === account.id)
+    const isJar = account.account_type === 'jar'
+    return (
+      <div className="flex items-center justify-between py-3 border-b border-slate-50 last:border-0">
+        <div className="flex items-center gap-3">
+          <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center shrink-0',
+            isJar ? 'bg-amber-100' : (BANK_COLORS[account.bank] || 'bg-slate-400'))}>
+            {isJar
+              ? <PiggyBank size={15} className="text-amber-600" />
+              : <span className="text-white text-xs font-bold">{account.bank[0].toUpperCase()}</span>}
+          </div>
+          <div>
+            <p className="text-sm font-medium text-slate-900">{account.name}</p>
+            <p className="text-xs text-slate-400">
+              {isJar
+                ? `Jar · ${account.currency || '—'}`
+                : `${BANK_LABELS[account.bank]}${account.account_number ? ` · ${account.account_number}` : ''}`}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="flex gap-1 flex-wrap justify-end">
+            {acctBalances.map(b => (
+              <span key={b.id} className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full font-medium">
+                {formatCurrency(b.balance, b.currency)}
+              </span>
+            ))}
+          </div>
+          <button onClick={() => deleteAccount(account.id, account.account_type)}
+            className="text-slate-300 hover:text-red-400 transition-colors p-1 shrink-0">
+            <Trash2 size={14} />
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="max-w-2xl space-y-10">
       <div>
         <h1 className="text-2xl font-semibold">Instellingen</h1>
-        <p className="text-sm text-slate-500 mt-1">Beheer categorieën, leveranciers en je account.</p>
+        <p className="text-sm text-slate-500 mt-1">Beheer rekeningen, jars, categorieën en leveranciers.</p>
       </div>
+
+      {/* ── Rekeningen ── */}
+      <section className="space-y-4">
+        <h2 className="text-base font-semibold text-slate-900">Rekeningen</h2>
+        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+          {regularAccounts.length > 0 && (
+            <div className="px-4">
+              {regularAccounts.map(a => <AccountRow key={a.id} account={a} />)}
+            </div>
+          )}
+          <div className={cn('flex gap-2 px-4 py-3', regularAccounts.length > 0 && 'border-t border-slate-100')}>
+            <input type="text" placeholder="Naam rekening…" value={newAccount.name}
+              onChange={e => setNewAccount(a => ({ ...a, name: e.target.value }))}
+              onKeyDown={e => e.key === 'Enter' && addAccount()}
+              className="flex-1 px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+            <select value={newAccount.bank} onChange={e => setNewAccount(a => ({ ...a, bank: e.target.value }))}
+              className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
+              {Object.entries(BANK_LABELS).map(([val, label]) => <option key={val} value={val}>{label}</option>)}
+            </select>
+            <button onClick={addAccount} disabled={!newAccount.name.trim() || savingAccount}
+              className="px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm transition-colors disabled:opacity-50">
+              <Plus size={14} />
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Jars ── */}
+      <section className="space-y-4">
+        <h2 className="text-base font-semibold text-slate-900">Jars</h2>
+        <p className="text-sm text-slate-500">
+          Een jar is een spaarpotje of rekening in een specifieke valuta. Je kunt er transacties naartoe uploaden of overboeken.
+        </p>
+        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+          {jars.length > 0 && (
+            <div className="px-4">
+              {jars.map(a => <AccountRow key={a.id} account={a} />)}
+            </div>
+          )}
+          <div className={cn('flex gap-2 px-4 py-3', jars.length > 0 && 'border-t border-slate-100')}>
+            <input type="text" placeholder="Naam jar…" value={newJar.name}
+              onChange={e => setNewJar(j => ({ ...j, name: e.target.value }))}
+              onKeyDown={e => e.key === 'Enter' && addJar()}
+              className="flex-1 px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+            <select value={newJar.currency} onChange={e => setNewJar(j => ({ ...j, currency: e.target.value }))}
+              className="w-24 px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
+              {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <button onClick={addJar} disabled={!newJar.name.trim() || savingJar}
+              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm transition-colors disabled:opacity-50">
+              <Plus size={14} />
+            </button>
+          </div>
+        </div>
+      </section>
 
       {/* ── Categorieën ── */}
       <section className="space-y-4">
@@ -143,7 +279,6 @@ export default function SettingsPage() {
             </button>
           )}
         </div>
-
         <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
           {categories.length > 0 && (
             <div>
@@ -163,30 +298,18 @@ export default function SettingsPage() {
               ))}
             </div>
           )}
-
-          {/* Add category */}
           <div className={cn('flex gap-2 px-4 py-3', categories.length > 0 && 'border-t border-slate-100')}>
-            <input
-              type="text"
-              placeholder="Naam categorie…"
-              value={newCatName}
+            <input type="text" placeholder="Naam categorie…" value={newCatName}
               onChange={e => setNewCatName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && addCategory()}
-              className="flex-1 px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400"
-            />
-            <select
-              value={newCatType}
-              onChange={e => setNewCatType(e.target.value as 'expense' | 'income')}
-              className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white"
-            >
+              className="flex-1 px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+            <select value={newCatType} onChange={e => setNewCatType(e.target.value as 'expense' | 'income')}
+              className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
               <option value="expense">Uitgaven</option>
               <option value="income">Inkomsten</option>
             </select>
-            <button
-              onClick={addCategory}
-              disabled={!newCatName.trim() || savingCat}
-              className="px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-1"
-            >
+            <button onClick={addCategory} disabled={!newCatName.trim() || savingCat}
+              className="px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm transition-colors disabled:opacity-50">
               <Plus size={14} />
             </button>
           </div>
@@ -197,25 +320,17 @@ export default function SettingsPage() {
       <section className="space-y-4">
         <h2 className="text-base font-semibold text-slate-900">Leveranciers</h2>
         <p className="text-sm text-slate-500">
-          Leveranciers worden automatisch herkend bij het uploaden van transacties. De bijbehorende categorie wordt dan ook automatisch toegewezen.
+          Leveranciers worden automatisch herkend bij het uploaden van transacties en door de AI. De bijbehorende categorie wordt dan ook automatisch toegewezen.
         </p>
-
         <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-          {/* Search + add */}
           <div className="flex gap-2 px-4 py-3 border-b border-slate-100">
             <div className="relative flex-1">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-              <input
-                type="text"
-                placeholder="Zoeken…"
-                value={vendorSearch}
+              <input type="text" placeholder="Zoeken…" value={vendorSearch}
                 onChange={e => setVendorSearch(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400"
-              />
+                className="w-full pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
             </div>
           </div>
-
-          {/* Vendor list */}
           {filteredVendors.length > 0 ? (
             <div>
               {filteredVendors.map((vendor, i) => (
@@ -237,30 +352,18 @@ export default function SettingsPage() {
               {vendorSearch ? 'Geen leveranciers gevonden.' : 'Nog geen leveranciers.'}
             </p>
           )}
-
-          {/* Add vendor */}
           <div className="flex gap-2 px-4 py-3 border-t border-slate-100">
-            <input
-              type="text"
-              placeholder="Naam leverancier…"
-              value={newVendorName}
+            <input type="text" placeholder="Naam leverancier…" value={newVendorName}
               onChange={e => setNewVendorName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && addVendor()}
-              className="flex-1 px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400"
-            />
-            <select
-              value={newVendorCategory}
-              onChange={e => setNewVendorCategory(e.target.value)}
-              className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white"
-            >
+              className="flex-1 px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+            <select value={newVendorCategory} onChange={e => setNewVendorCategory(e.target.value)}
+              className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
               <option value="">Categorie…</option>
               {categoryNames.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
-            <button
-              onClick={addVendor}
-              disabled={!newVendorName.trim() || savingVendor}
-              className="px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-1"
-            >
+            <button onClick={addVendor} disabled={!newVendorName.trim() || savingVendor}
+              className="px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm transition-colors disabled:opacity-50">
               <Plus size={14} />
             </button>
           </div>
@@ -271,11 +374,8 @@ export default function SettingsPage() {
       <section className="space-y-4">
         <h2 className="text-base font-semibold text-slate-900">Account</h2>
         <div className="bg-white border border-slate-200 rounded-2xl p-4">
-          <button
-            onClick={handleSignOut}
-            disabled={signingOut}
-            className="flex items-center gap-2 px-4 py-2 border border-red-200 text-red-600 hover:bg-red-50 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
-          >
+          <button onClick={handleSignOut} disabled={signingOut}
+            className="flex items-center gap-2 px-4 py-2 border border-red-200 text-red-600 hover:bg-red-50 rounded-xl text-sm font-medium transition-colors disabled:opacity-50">
             <LogOut size={15} />
             {signingOut ? 'Uitloggen…' : 'Uitloggen'}
           </button>

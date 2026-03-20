@@ -1,9 +1,9 @@
 'use client'
 
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { Account, AccountBalance, Transaction, Vendor, AdminCategory, AccountType } from '@/types'
+import { Account, AccountBalance, Transaction, Vendor, AdminCategory } from '@/types'
 import { formatCurrency, formatDate, cn } from '@/lib/utils'
-import { Plus, Upload, Sparkles, Trash2, X, Search, ArrowUpDown, Link2, Unlink, PiggyBank } from 'lucide-react'
+import { Upload, Sparkles, Search, ArrowUpDown, Link2, Unlink, PiggyBank } from 'lucide-react'
 
 const BANK_LABELS: Record<string, string> = {
   rabobank: 'Rabobank', wise: 'Wise', revolut: 'Revolut',
@@ -71,11 +71,6 @@ export default function AdministratiePage() {
   const [transferring, setTransferring] = useState(false)
   const [transferResult, setTransferResult] = useState<{ exchange_rate: number; from: string; to: string } | null>(null)
 
-  // New account/jar form
-  const [newAccountType, setNewAccountType] = useState<AccountType>('account')
-  const [showAccountForm, setShowAccountForm] = useState(false)
-  const [newAccount, setNewAccount] = useState({ name: '', bank: 'rabobank', account_number: '' })
-  const [savingAccount, setSavingAccount] = useState(false)
 
   async function loadData() {
     setLoading(true)
@@ -216,17 +211,6 @@ export default function AdministratiePage() {
     setCategorizing(false)
   }
 
-  async function createAccount() {
-    setSavingAccount(true)
-    const res = await fetch('/api/accounts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...newAccount, account_type: newAccountType }) })
-    setSavingAccount(false)
-    if (res.ok) { setShowAccountForm(false); setNewAccount({ name: '', bank: 'rabobank', account_number: '' }); await loadData() }
-  }
-
-  async function deleteAccount(id: string) {
-    await fetch(`/api/accounts?id=${id}`, { method: 'DELETE' })
-    await loadData()
-  }
 
   // ── Derived data ─────────────────────────────────────────────────────────────
   const regularAccounts = accounts.filter(a => a.account_type !== 'jar')
