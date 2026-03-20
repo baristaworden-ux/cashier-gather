@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Account, AccountBalance, Transaction } from '@/types'
 import { formatCurrency, formatDate, cn } from '@/lib/utils'
-import { Plus, Upload, Sparkles, ChevronDown, ChevronUp, Trash2, X } from 'lucide-react'
+import { Plus, Upload, Sparkles, Trash2, X } from 'lucide-react'
 
 const BANK_LABELS: Record<string, string> = {
   rabobank: 'Rabobank',

@@ -1,4 +1,4 @@
-import { BankSource, Transaction } from '@/types'
+import { BankSource } from '@/types'
 
 export interface ParsedTransaction {
   date: string
