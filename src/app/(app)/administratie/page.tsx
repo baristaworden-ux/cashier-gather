@@ -43,6 +43,7 @@ export default function AdministratiePage() {
   const [filterVendor, setFilterVendor] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('date_desc')
   const [txTab, setTxTab] = useState<'draft' | 'processed'>('draft')
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
   // Inline cell edit
   const [cellDropdown, setCellDropdown] = useState<CellDropdown | null>(null)
@@ -321,6 +322,28 @@ export default function AdministratiePage() {
     if (res.ok) {
       setTransactions(txs => txs.filter(t => t.id !== tx.id))
     }
+  }
+
+  async function bulkDelete() {
+    const ids = Array.from(selectedIds)
+    await Promise.all(ids.map(id => fetch(`/api/transactions?id=${id}`, { method: 'DELETE' })))
+    setTransactions(txs => txs.filter(t => !selectedIds.has(t.id)))
+    setSelectedIds(new Set())
+  }
+
+  async function bulkRevert() {
+    const ids = Array.from(selectedIds)
+    await Promise.all(ids.map(id =>
+      fetch('/api/transactions/process', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, revert: true }),
+      })
+    ))
+    setTransactions(txs => txs.map(t => selectedIds.has(t.id) ? { ...t, status: 'draft' } : t))
+    setSelectedIds(new Set())
+    setTxTab('draft')
+    const accRes = await fetch('/api/accounts')
+    if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []) }
   }
 
   function openMatchPopup(tx: Transaction) {
@@ -609,7 +632,7 @@ export default function AdministratiePage() {
               {/* Draft / Processed sub-tabs */}
               <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1 w-fit">
                 <button
-                  onClick={() => setTxTab('draft')}
+                  onClick={() => { setTxTab('draft'); setSelectedIds(new Set()) }}
                   className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
                     txTab === 'draft' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700')}
                 >
@@ -619,7 +642,7 @@ export default function AdministratiePage() {
                   )}
                 </button>
                 <button
-                  onClick={() => setTxTab('processed')}
+                  onClick={() => { setTxTab('processed'); setSelectedIds(new Set()) }}
                   className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
                     txTab === 'processed' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700')}
                 >
@@ -667,7 +690,28 @@ export default function AdministratiePage() {
                   </select>
                 </div>
               </div>
-              <p className="text-xs text-slate-400">{filtered.length} transacties</p>
+              <div className="flex items-center justify-between min-h-[28px]">
+                <p className="text-xs text-slate-400">{filtered.length} transacties</p>
+                {selectedIds.size > 0 && (
+                  <div className="flex items-center gap-2 bg-slate-900 text-white px-3 py-1.5 rounded-xl text-xs font-medium">
+                    <span className="text-slate-300">{selectedIds.size} geselecteerd</span>
+                    <span className="text-slate-600">·</span>
+                    {txTab === 'draft' ? (
+                      <button onClick={bulkDelete} className="flex items-center gap-1 text-red-400 hover:text-red-300 transition-colors">
+                        <Trash2 size={11} />Verwijderen
+                      </button>
+                    ) : (
+                      <button onClick={bulkRevert} className="flex items-center gap-1 text-amber-400 hover:text-amber-300 transition-colors">
+                        <RotateCcw size={11} />Terugzetten naar draft
+                      </button>
+                    )}
+                    <span className="text-slate-600">·</span>
+                    <button onClick={() => setSelectedIds(new Set())} className="text-slate-400 hover:text-white transition-colors">
+                      <X size={11} />
+                    </button>
+                  </div>
+                )}
+              </div>
 
               {filtered.length === 0
                 ? <p className="text-sm text-slate-400 italic text-center py-12">Geen transacties gevonden.</p>
@@ -676,6 +720,17 @@ export default function AdministratiePage() {
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b border-slate-100">
+                          <th className="w-10 px-3 py-3">
+                            <input
+                              type="checkbox"
+                              className="rounded border-slate-300 text-indigo-500 cursor-pointer"
+                              checked={filtered.length > 0 && filtered.slice(0, 200).every(t => selectedIds.has(t.id))}
+                              onChange={e => {
+                                const ids = filtered.slice(0, 200).map(t => t.id)
+                                setSelectedIds(e.target.checked ? new Set(ids) : new Set())
+                              }}
+                            />
+                          </th>
                           <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide w-24">Datum</th>
                           <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide w-36 hidden md:table-cell">Leverancier</th>
                           <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Omschrijving</th>
@@ -693,7 +748,19 @@ export default function AdministratiePage() {
                             : null
                           return (
                             <>
-                              <tr key={tx.id} className={cn('border-b border-slate-50 transition-colors', isLinking ? 'bg-indigo-50' : 'hover:bg-slate-50')}>
+                              <tr key={tx.id} className={cn('border-b border-slate-50 transition-colors', isLinking ? 'bg-indigo-50' : selectedIds.has(tx.id) ? 'bg-indigo-50/60' : 'hover:bg-slate-50')}>
+                                <td className="w-10 px-3 py-2.5">
+                                  <input
+                                    type="checkbox"
+                                    className="rounded border-slate-300 text-indigo-500 cursor-pointer"
+                                    checked={selectedIds.has(tx.id)}
+                                    onChange={e => setSelectedIds(prev => {
+                                      const next = new Set(prev)
+                                      e.target.checked ? next.add(tx.id) : next.delete(tx.id)
+                                      return next
+                                    })}
+                                  />
+                                </td>
                                 <td className="px-4 py-2.5 text-xs text-slate-500 whitespace-nowrap">{formatDate(tx.date)}</td>
 
                                 {/* Leverancier — clickable */}
@@ -795,7 +862,7 @@ export default function AdministratiePage() {
                               {/* Link panel */}
                               {isLinking && (
                                 <tr key={`${tx.id}-link`} className="bg-indigo-50 border-b border-indigo-100">
-                                  <td colSpan={7} className="px-4 py-3">
+                                  <td colSpan={8} className="px-4 py-3">
                                     <p className="text-xs font-semibold text-indigo-700 mb-2">Koppel aan tegenpost:</p>
                                     {linkCandidates.length === 0
                                       ? <p className="text-xs text-slate-400 italic">Geen kandidaten gevonden binnen 7 dagen op andere rekeningen.</p>
