@@ -465,7 +465,7 @@ export default function AdministratiePage() {
   const draftCount = transactions.filter(t => t.status === 'draft').length
 
   const filtered = transactions.filter(t => {
-    if (t.status !== txTab) return false
+    if ((t.status || 'processed') !== txTab) return false
     if (filterAccount && t.account_id !== filterAccount) return false
     if (filterType && t.type !== filterType) return false
     if (filterCategory && t.category !== filterCategory) return false
