@@ -756,7 +756,7 @@ export default function AdministratiePage() {
                                     checked={selectedIds.has(tx.id)}
                                     onChange={e => setSelectedIds(prev => {
                                       const next = new Set(prev)
-                                      e.target.checked ? next.add(tx.id) : next.delete(tx.id)
+                                      if (e.target.checked) { next.add(tx.id) } else { next.delete(tx.id) }
                                       return next
                                     })}
                                   />
