@@ -80,25 +80,70 @@ export default function AdministratiePage() {
   const [transferResult, setTransferResult] = useState<{ exchange_rate: number; from: string; to: string } | null>(null)
 
 
-  function findAutoMatches(txList: Transaction[]): Record<string, string> {
+  async function findAutoMatches(txList: Transaction[]): Promise<Record<string, string>> {
     const unlinked = txList.filter(t => !t.transfer_group_id)
     const matched = new Set<string>()
     const result: Record<string, string> = {}
+
+    // Collect unique currency pairs we need exchange rates for
+    const rateCache: Record<string, number> = {} // "date|from|to" → rate
+    const toFetch = new Set<string>()
+    for (const tx of unlinked) {
+      const txDate = tx.date.slice(0, 10)
+      for (const c of unlinked) {
+        if (c.id === tx.id || c.account_id === tx.account_id) continue
+        if (c.date.slice(0, 10) !== txDate) continue
+        if (tx.currency !== c.currency) {
+          toFetch.add(`${txDate}|${tx.currency.toLowerCase()}|${c.currency.toLowerCase()}`)
+        }
+      }
+    }
+
+    // Fetch all needed rates in parallel
+    await Promise.all(Array.from(toFetch).map(async key => {
+      const [date, from, to] = key.split('|')
+      try {
+        const res = await fetch(`https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@${date}/v1/currencies/${from}.json`)
+        if (res.ok) {
+          const data = await res.json()
+          const rate = data[from]?.[to]
+          if (rate) rateCache[key] = rate
+        }
+      } catch { /* ignore network errors */ }
+    }))
+
     for (const tx of unlinked) {
       if (matched.has(tx.id)) continue
-      const txDate = new Date(tx.date).getTime()
-      const candidates = unlinked
+      const txDate = tx.date.slice(0, 10)
+
+      const scored = unlinked
         .filter(t =>
           t.id !== tx.id &&
           !matched.has(t.id) &&
           t.account_id !== tx.account_id &&
-          Math.abs(new Date(t.date).getTime() - txDate) <= 7 * 24 * 3600 * 1000
+          t.date.slice(0, 10) === txDate && // same day
+          // must be opposite types: one income, one expense
+          ((tx.type === 'expense' && t.type === 'income') || (tx.type === 'income' && t.type === 'expense'))
         )
-        .map(t => ({ t, diff: Math.abs(t.amount - tx.amount) / Math.max(tx.amount, 0.01) }))
+        .map(t => {
+          let diff: number
+          if (tx.currency === t.currency) {
+            diff = Math.abs(t.amount - tx.amount) / Math.max(tx.amount, 0.01)
+          } else {
+            const fwd = `${txDate}|${tx.currency.toLowerCase()}|${t.currency.toLowerCase()}`
+            const rev = `${txDate}|${t.currency.toLowerCase()}|${tx.currency.toLowerCase()}`
+            const rate = rateCache[fwd] ?? (rateCache[rev] ? 1 / rateCache[rev] : null)
+            if (rate === null) return { t, diff: Infinity }
+            const converted = tx.amount * rate
+            diff = Math.abs(t.amount - converted) / Math.max(Math.max(t.amount, converted), 0.01)
+          }
+          return { t, diff }
+        })
         .filter(s => s.diff < 0.15)
         .sort((a, b) => a.diff - b.diff)
-      if (candidates.length === 0) continue
-      const best = candidates[0].t
+
+      if (scored.length === 0) continue
+      const best = scored[0].t
       result[tx.id] = best.id
       result[best.id] = tx.id
       matched.add(tx.id)
@@ -150,10 +195,49 @@ export default function AdministratiePage() {
 
   const updateCellValue = useCallback(async (txId: string, field: 'vendor' | 'category', value: string) => {
     const update: Record<string, string | null> = { [field]: value || null }
+    const tx = transactions.find(t => t.id === txId)
+
     if (field === 'vendor' && value) {
-      const vendor = vendors.find(v => v.name === value)
-      if (vendor?.category) update.category = vendor.category
+      const existingVendor = vendors.find(v => v.name === value)
+      if (existingVendor?.category) {
+        update.category = existingVendor.category
+      } else if (!existingVendor) {
+        // Auto-save new vendor with whatever category the transaction has (current or just-set)
+        const category = tx?.category ?? null
+        if (category) {
+          const res = await fetch('/api/vendors', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: value, category }),
+          })
+          if (res.ok) {
+            const d = await res.json()
+            setVendors(vs => [...vs, d.vendor])
+          }
+        }
+        // Apply vendor+category to other transactions whose description contains the vendor name
+        const vendorLower = value.toLowerCase()
+        const category2 = update.category ?? tx?.category ?? null
+        const matches = transactions.filter(t =>
+          t.id !== txId &&
+          !t.vendor &&
+          t.description.toLowerCase().includes(vendorLower)
+        )
+        if (matches.length > 0) {
+          const batchUpdate: Record<string, string | null> = { vendor: value }
+          if (category2) batchUpdate.category = category2
+          await Promise.all(matches.map(t =>
+            fetch('/api/transactions', {
+              method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: t.id, ...batchUpdate }),
+            })
+          ))
+          setTransactions(txs => txs.map(t =>
+            matches.some(m => m.id === t.id) ? { ...t, ...batchUpdate } : t
+          ))
+        }
+      }
     }
+
     await fetch('/api/transactions', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -161,7 +245,7 @@ export default function AdministratiePage() {
     })
     setTransactions(txs => txs.map(t => t.id === txId ? { ...t, ...update } : t))
     setCellDropdown(null)
-  }, [vendors])
+  }, [vendors, transactions])
 
   const categoryNames = categories.map(c => c.name)
   const vendorNames = vendors.map(v => v.name)
@@ -329,7 +413,7 @@ export default function AdministratiePage() {
       const freshTxs: Transaction[] = d.transactions || []
       setTransactions(freshTxs)
       setUncategorizedCount(freshTxs.filter(t => !t.category).length)
-      setAiMatches(findAutoMatches(freshTxs))
+      setAiMatches(await findAutoMatches(freshTxs))
     }
     if (vendorRes.ok) { const d = await vendorRes.json(); setVendors(d.vendors || []) }
     if (catRes.ok) { const d = await catRes.json(); setCategories(d.categories || []) }
