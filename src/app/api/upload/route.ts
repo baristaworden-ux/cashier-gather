@@ -57,6 +57,7 @@ export async function POST(req: NextRequest) {
         vendor: match?.vendor ?? undefined,
         category: match?.category ?? undefined,
         ai_categorized: false,
+        status: 'draft',
       }
     })
 
@@ -67,30 +68,6 @@ export async function POST(req: NextRequest) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  // Update account balance from most recent transaction's running balance if available
-  // (For now, we compute it from transactions)
-  await updateAccountBalance(supabase, account_id, user.id, currency)
-
+  // Balance is only updated when transactions are moved from draft → processed
   return NextResponse.json({ imported: toInsert.length, skipped, bank })
-}
-
-async function updateAccountBalance(supabase: Awaited<ReturnType<typeof import('@/lib/supabase/server').createClient>>, account_id: string, user_id: string, currency: string) {
-  const { data } = await supabase
-    .from('admin_transactions')
-    .select('amount, type')
-    .eq('account_id', account_id)
-    .eq('currency', currency)
-
-  if (!data) return
-
-  const balance = data.reduce((sum: number, t: { amount: number; type: string }) => {
-    return sum + (t.type === 'income' ? t.amount : -t.amount)
-  }, 0)
-
-  await supabase
-    .from('admin_account_balances')
-    .upsert(
-      { account_id, user_id, currency, balance, updated_at: new Date().toISOString() },
-      { onConflict: 'account_id,currency' }
-    )
 }

@@ -44,6 +44,7 @@ export async function POST(req: NextRequest) {
     category: 'Overboekingen',
     notes: fee_amount ? `Kosten: ${fee_amount} ${from_currency} · Koers: 1 ${from_currency} = ${exchange_rate} ${to_currency}` : `Koers: 1 ${from_currency} = ${exchange_rate} ${to_currency}`,
     ai_categorized: false,
+    status: 'processed',
     source: 'manual',
     import_hash: `${hash}-out`,
     transfer_group_id,
@@ -63,6 +64,7 @@ export async function POST(req: NextRequest) {
     category: 'Overboekingen',
     notes: `Koers: 1 ${from_currency} = ${exchange_rate} ${to_currency}`,
     ai_categorized: false,
+    status: 'processed',
     source: 'manual',
     import_hash: `${hash}-in`,
     transfer_group_id,
@@ -87,6 +89,7 @@ async function updateBalance(
     .select('amount, type')
     .eq('account_id', account_id)
     .eq('currency', currency)
+    .eq('status', 'processed')
 
   if (!data) return
   const balance = data.reduce((sum: number, t: { amount: number; type: string }) =>

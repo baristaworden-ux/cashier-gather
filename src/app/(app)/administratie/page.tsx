@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { Account, AccountBalance, Transaction, Vendor, AdminCategory } from '@/types'
 import { formatCurrency, formatDate, cn, CURRENCIES } from '@/lib/utils'
-import { Upload, Sparkles, Search, ArrowUpDown, Link2, Unlink, PiggyBank } from 'lucide-react'
+import { Upload, Sparkles, Search, ArrowUpDown, Link2, Unlink, PiggyBank, ChevronRight, X, Plus, Trash2, RotateCcw } from 'lucide-react'
 
 const BANK_LABELS: Record<string, string> = {
   rabobank: 'Rabobank', wise: 'Wise', revolut: 'Revolut',
@@ -42,6 +42,7 @@ export default function AdministratiePage() {
   const [filterCategory, setFilterCategory] = useState('')
   const [filterVendor, setFilterVendor] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('date_desc')
+  const [txTab, setTxTab] = useState<'draft' | 'processed'>('draft')
 
   // Inline cell edit
   const [cellDropdown, setCellDropdown] = useState<CellDropdown | null>(null)
@@ -52,6 +53,13 @@ export default function AdministratiePage() {
   const [linkingTx, setLinkingTx] = useState<Transaction | null>(null)
   const [linkCandidates, setLinkCandidates] = useState<Transaction[]>([])
   const linkRef = useRef<HTMLDivElement>(null)
+
+  // AI match popup
+  const [aiMatches, setAiMatches] = useState<Record<string, string>>({})
+  const [matchPopup, setMatchPopup] = useState<{ txId: string; matchId: string; fromAmount: number; toAmount: number } | null>(null)
+  const [matchPopupSearch, setMatchPopupSearch] = useState('')
+  const [matchPickerOpen, setMatchPickerOpen] = useState(false)
+  const matchPopupRef = useRef<HTMLDivElement>(null)
 
   // Upload
   const [uploadFile, setUploadFile] = useState<File | null>(null)
@@ -71,6 +79,33 @@ export default function AdministratiePage() {
   const [transferring, setTransferring] = useState(false)
   const [transferResult, setTransferResult] = useState<{ exchange_rate: number; from: string; to: string } | null>(null)
 
+
+  function findAutoMatches(txList: Transaction[]): Record<string, string> {
+    const unlinked = txList.filter(t => !t.transfer_group_id)
+    const matched = new Set<string>()
+    const result: Record<string, string> = {}
+    for (const tx of unlinked) {
+      if (matched.has(tx.id)) continue
+      const txDate = new Date(tx.date).getTime()
+      const candidates = unlinked
+        .filter(t =>
+          t.id !== tx.id &&
+          !matched.has(t.id) &&
+          t.account_id !== tx.account_id &&
+          Math.abs(new Date(t.date).getTime() - txDate) <= 7 * 24 * 3600 * 1000
+        )
+        .map(t => ({ t, diff: Math.abs(t.amount - tx.amount) / Math.max(tx.amount, 0.01) }))
+        .filter(s => s.diff < 0.15)
+        .sort((a, b) => a.diff - b.diff)
+      if (candidates.length === 0) continue
+      const best = candidates[0].t
+      result[tx.id] = best.id
+      result[best.id] = tx.id
+      matched.add(tx.id)
+      matched.add(best.id)
+    }
+    return result
+  }
 
   async function loadData() {
     setLoading(true)
@@ -98,6 +133,7 @@ export default function AdministratiePage() {
     function handler(e: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) setCellDropdown(null)
       if (linkRef.current && !linkRef.current.contains(e.target as Node)) setLinkingTx(null)
+      if (matchPopupRef.current && !matchPopupRef.current.contains(e.target as Node)) { setMatchPopup(null); setMatchPickerOpen(false) }
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
@@ -171,6 +207,79 @@ export default function AdministratiePage() {
     setTransactions(txs => txs.map(t => t.transfer_group_id === groupId ? { ...t, transfer_group_id: undefined } : t))
   }
 
+  async function processTransaction(tx: Transaction) {
+    const res = await fetch('/api/transactions/process', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: tx.id }),
+    })
+    if (res.ok) {
+      setTransactions(txs => txs.map(t => t.id === tx.id ? { ...t, status: 'processed' } : t))
+      const accRes = await fetch('/api/accounts')
+      if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []) }
+    }
+  }
+
+  async function revertTransaction(tx: Transaction) {
+    const res = await fetch('/api/transactions/process', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: tx.id, revert: true }),
+    })
+    if (res.ok) {
+      setTransactions(txs => txs.map(t => t.id === tx.id ? { ...t, status: 'draft' } : t))
+      setTxTab('draft')
+      const accRes = await fetch('/api/accounts')
+      if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []) }
+    }
+  }
+
+  async function deleteTransaction(tx: Transaction) {
+    const res = await fetch(`/api/transactions?id=${tx.id}`, { method: 'DELETE' })
+    if (res.ok) {
+      setTransactions(txs => txs.filter(t => t.id !== tx.id))
+    }
+  }
+
+  function openMatchPopup(tx: Transaction) {
+    const matchId = aiMatches[tx.id]
+    if (!matchId) return
+    const matchTx = transactions.find(t => t.id === matchId)
+    if (!matchTx) return
+    setMatchPopup({ txId: tx.id, matchId, fromAmount: tx.amount, toAmount: matchTx.amount })
+    setMatchPopupSearch('')
+    setMatchPickerOpen(false)
+  }
+
+  async function confirmMatch() {
+    if (!matchPopup) return
+    const tx = transactions.find(t => t.id === matchPopup.txId)
+    const matchTx = transactions.find(t => t.id === matchPopup.matchId)
+    if (!tx || !matchTx) return
+
+    const updates: Promise<void>[] = []
+    if (matchPopup.fromAmount !== tx.amount) {
+      updates.push(fetch('/api/transactions', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: tx.id, amount: matchPopup.fromAmount }) }).then(() => {}))
+    }
+    if (matchPopup.toAmount !== matchTx.amount) {
+      updates.push(fetch('/api/transactions', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: matchTx.id, amount: matchPopup.toAmount }) }).then(() => {}))
+    }
+    await Promise.all(updates)
+
+    const res = await fetch('/api/transactions/link', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id_a: matchPopup.txId, id_b: matchPopup.matchId }),
+    })
+    if (res.ok) {
+      const { transfer_group_id } = await res.json()
+      setTransactions(txs => txs.map(t => {
+        if (t.id === matchPopup.txId) return { ...t, transfer_group_id, amount: matchPopup.fromAmount }
+        if (t.id === matchPopup.matchId) return { ...t, transfer_group_id, amount: matchPopup.toAmount }
+        return t
+      }))
+      setAiMatches(m => { const next = { ...m }; delete next[matchPopup.txId]; delete next[matchPopup.matchId]; return next })
+      setMatchPopup(null)
+    }
+  }
+
   async function handleTransfer() {
     if (!transfer.from_account_id || !transfer.to_account_id || !transfer.from_amount || !transfer.to_amount) return
     setTransferring(true); setTransferResult(null)
@@ -206,8 +315,24 @@ export default function AdministratiePage() {
     const ids = transactions.filter(t => !t.category).map(t => t.id)
     if (ids.length > 0) {
       await fetch('/api/categorize', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transaction_ids: ids }) })
-      await loadData()
     }
+    // Reload all data fresh, then compute matches on the new transaction list
+    const [accRes, txRes, vendorRes, catRes] = await Promise.all([
+      fetch('/api/accounts'),
+      fetch('/api/transactions?limit=500'),
+      fetch('/api/vendors'),
+      fetch('/api/categories'),
+    ])
+    if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []) }
+    if (txRes.ok) {
+      const d = await txRes.json()
+      const freshTxs: Transaction[] = d.transactions || []
+      setTransactions(freshTxs)
+      setUncategorizedCount(freshTxs.filter(t => !t.category).length)
+      setAiMatches(findAutoMatches(freshTxs))
+    }
+    if (vendorRes.ok) { const d = await vendorRes.json(); setVendors(d.vendors || []) }
+    if (catRes.ok) { const d = await catRes.json(); setCategories(d.categories || []) }
     setCategorizing(false)
   }
 
@@ -230,7 +355,10 @@ export default function AdministratiePage() {
   const topCategories = Object.entries(spendingByCategory).sort((a, b) => b[1] - a[1]).slice(0, 8)
   const totalExpenses = transactions.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
 
+  const draftCount = transactions.filter(t => t.status === 'draft').length
+
   const filtered = transactions.filter(t => {
+    if (t.status !== txTab) return false
     if (filterAccount && t.account_id !== filterAccount) return false
     if (filterType && t.type !== filterType) return false
     if (filterCategory && t.category !== filterCategory) return false
@@ -394,6 +522,27 @@ export default function AdministratiePage() {
           {/* ── TRANSACTIES ── */}
           {tab === 'transacties' && (
             <div className="space-y-4">
+              {/* Draft / Processed sub-tabs */}
+              <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1 w-fit">
+                <button
+                  onClick={() => setTxTab('draft')}
+                  className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
+                    txTab === 'draft' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700')}
+                >
+                  New (draft)
+                  {draftCount > 0 && (
+                    <span className="bg-amber-100 text-amber-700 text-xs font-semibold px-1.5 py-0.5 rounded-full">{draftCount}</span>
+                  )}
+                </button>
+                <button
+                  onClick={() => setTxTab('processed')}
+                  className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
+                    txTab === 'processed' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700')}
+                >
+                  Processed
+                </button>
+              </div>
+
               {/* Filters */}
               <div className="flex gap-2 flex-wrap items-center">
                 <div className="relative">
@@ -449,6 +598,7 @@ export default function AdministratiePage() {
                           <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden md:table-cell">Categorie</th>
                           <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden lg:table-cell w-32">Koppeling</th>
                           <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Bedrag</th>
+                          <th className="w-24" />
                         </tr>
                       </thead>
                       <tbody>
@@ -500,23 +650,26 @@ export default function AdministratiePage() {
 
                                 {/* Koppeling */}
                                 <td className="px-4 py-2.5 hidden lg:table-cell">
-                                  {tx.type === 'transfer' && (
-                                    linkedTx ? (
-                                      <div className="flex items-center gap-1.5">
-                                        <span className="text-xs bg-indigo-50 text-indigo-600 border border-indigo-200 px-2 py-0.5 rounded-full font-medium flex items-center gap-1 truncate max-w-[100px]">
-                                          <Link2 size={10} className="shrink-0" />
-                                          {accountMap[linkedTx.account_id]?.name ?? '—'}
-                                        </span>
-                                        <button onClick={() => unlinkTransaction(tx)} className="text-slate-300 hover:text-red-400 transition-colors shrink-0"><Unlink size={12} /></button>
-                                      </div>
-                                    ) : (
-                                      <button onClick={() => openLinkPanel(tx)}
-                                        className={cn('flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border transition-colors',
-                                          isLinking ? 'bg-indigo-100 border-indigo-300 text-indigo-700' : 'border-slate-200 text-slate-400 hover:border-indigo-300 hover:text-indigo-600')}>
-                                        <Link2 size={10} />Koppelen
-                                      </button>
-                                    )
-                                  )}
+                                  {linkedTx ? (
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-xs bg-indigo-50 text-indigo-600 border border-indigo-200 px-2 py-0.5 rounded-full font-medium flex items-center gap-1 truncate max-w-[100px]">
+                                        <Link2 size={10} className="shrink-0" />
+                                        {accountMap[linkedTx.account_id]?.name ?? '—'}
+                                      </span>
+                                      <button onClick={() => unlinkTransaction(tx)} className="text-slate-300 hover:text-red-400 transition-colors shrink-0"><Unlink size={12} /></button>
+                                    </div>
+                                  ) : aiMatches[tx.id] ? (
+                                    <button onClick={() => openMatchPopup(tx)}
+                                      className="flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border transition-colors bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100">
+                                      <Sparkles size={10} />Found match
+                                    </button>
+                                  ) : tx.type === 'transfer' ? (
+                                    <button onClick={() => openLinkPanel(tx)}
+                                      className={cn('flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border transition-colors',
+                                        isLinking ? 'bg-indigo-100 border-indigo-300 text-indigo-700' : 'border-slate-200 text-slate-400 hover:border-indigo-300 hover:text-indigo-600')}>
+                                      <Link2 size={10} />Koppelen
+                                    </button>
+                                  ) : null}
                                 </td>
 
                                 <td className={cn('px-4 py-2.5 text-right font-semibold whitespace-nowrap text-sm',
@@ -524,12 +677,41 @@ export default function AdministratiePage() {
                                   {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : ''}
                                   {formatCurrency(tx.amount, tx.currency)}
                                 </td>
+                                <td className="px-2 py-2.5">
+                                  <div className="flex items-center gap-1 justify-end">
+                                    {txTab === 'draft' ? (
+                                      <>
+                                        <button
+                                          onClick={() => processTransaction(tx)}
+                                          className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg transition-colors whitespace-nowrap"
+                                        >
+                                          <Plus size={11} />Add
+                                        </button>
+                                        <button
+                                          onClick={() => deleteTransaction(tx)}
+                                          className="p-1.5 text-slate-300 hover:text-red-400 hover:bg-red-50 rounded-lg transition-colors"
+                                          title="Verwijderen"
+                                        >
+                                          <Trash2 size={13} />
+                                        </button>
+                                      </>
+                                    ) : (
+                                      <button
+                                        onClick={() => revertTransaction(tx)}
+                                        className="flex items-center gap-1 text-xs px-2 py-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors whitespace-nowrap"
+                                        title="Terugzetten naar draft"
+                                      >
+                                        <RotateCcw size={11} />Terugzetten
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
                               </tr>
 
                               {/* Link panel */}
                               {isLinking && (
                                 <tr key={`${tx.id}-link`} className="bg-indigo-50 border-b border-indigo-100">
-                                  <td colSpan={6} className="px-4 py-3">
+                                  <td colSpan={7} className="px-4 py-3">
                                     <p className="text-xs font-semibold text-indigo-700 mb-2">Koppel aan tegenpost:</p>
                                     {linkCandidates.length === 0
                                       ? <p className="text-xs text-slate-400 italic">Geen kandidaten gevonden binnen 7 dagen op andere rekeningen.</p>
@@ -560,6 +742,148 @@ export default function AdministratiePage() {
                     )}
                   </div>
                 )}
+
+              {/* Match popup */}
+              {matchPopup && (() => {
+                const tx = transactions.find(t => t.id === matchPopup.txId)
+                const matchTx = transactions.find(t => t.id === matchPopup.matchId)
+                if (!tx || !matchTx) return null
+                const pickerOptions = transactions.filter(t =>
+                  t.id !== matchPopup.txId &&
+                  (!matchPopupSearch || t.description.toLowerCase().includes(matchPopupSearch.toLowerCase()) ||
+                    (accountMap[t.account_id]?.name ?? '').toLowerCase().includes(matchPopupSearch.toLowerCase()) ||
+                    formatCurrency(t.amount, t.currency).includes(matchPopupSearch))
+                )
+                return (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+                    <div ref={matchPopupRef} className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+                      {/* Header */}
+                      <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+                        <div className="flex items-center gap-2">
+                          <Sparkles size={15} className="text-amber-500" />
+                          <span className="font-semibold text-slate-900 text-sm">Gevonden koppeling</span>
+                        </div>
+                        <button onClick={() => setMatchPopup(null)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                          <X size={16} />
+                        </button>
+                      </div>
+
+                      <div className="p-5 space-y-3">
+                        {/* Source transaction */}
+                        <div className="bg-slate-50 rounded-xl p-4 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{accountMap[tx.account_id]?.name ?? '—'}</p>
+                              <p className="text-sm text-slate-800 font-medium mt-0.5 truncate max-w-[240px]">{tx.description}</p>
+                              <p className="text-xs text-slate-400 mt-0.5">{formatDate(tx.date)}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-xs text-slate-400 mb-1">Bedrag</p>
+                              <input
+                                type="number"
+                                value={matchPopup.fromAmount}
+                                onChange={e => setMatchPopup(p => p ? { ...p, fromAmount: parseFloat(e.target.value) || 0 } : null)}
+                                className="w-28 text-right px-2 py-1.5 text-sm font-semibold border border-slate-200 rounded-lg outline-none focus:border-indigo-400"
+                              />
+                              <p className="text-xs text-slate-400 mt-0.5">{tx.currency}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-center text-slate-300">
+                          <Link2 size={14} />
+                        </div>
+
+                        {/* Matched transaction */}
+                        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1 min-w-0 mr-3">
+                              <div className="flex items-center gap-2">
+                                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{accountMap[matchTx.account_id]?.name ?? '—'}</p>
+                                <button
+                                  onClick={() => { setMatchPickerOpen(o => !o); setMatchPopupSearch('') }}
+                                  className="flex items-center gap-0.5 text-xs text-amber-600 hover:text-amber-800 transition-colors font-medium"
+                                >
+                                  <ChevronRight size={12} />wijzigen
+                                </button>
+                              </div>
+                              <p className="text-sm text-slate-800 font-medium mt-0.5 truncate max-w-[200px]">{matchTx.description}</p>
+                              <p className="text-xs text-slate-400 mt-0.5">{formatDate(matchTx.date)}</p>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <p className="text-xs text-slate-400 mb-1">Bedrag</p>
+                              <input
+                                type="number"
+                                value={matchPopup.toAmount}
+                                onChange={e => setMatchPopup(p => p ? { ...p, toAmount: parseFloat(e.target.value) || 0 } : null)}
+                                className="w-28 text-right px-2 py-1.5 text-sm font-semibold border border-amber-200 rounded-lg outline-none focus:border-indigo-400 bg-white"
+                              />
+                              <p className="text-xs text-slate-400 mt-0.5">{matchTx.currency}</p>
+                            </div>
+                          </div>
+
+                          {/* Transaction picker dropdown */}
+                          {matchPickerOpen && (
+                            <div className="mt-2 border border-amber-200 rounded-xl overflow-hidden bg-white">
+                              <div className="p-2 border-b border-slate-100">
+                                <div className="relative">
+                                  <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                  <input
+                                    autoFocus
+                                    type="text"
+                                    placeholder="Transactie zoeken…"
+                                    value={matchPopupSearch}
+                                    onChange={e => setMatchPopupSearch(e.target.value)}
+                                    className="w-full pl-7 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg outline-none focus:border-indigo-400"
+                                  />
+                                </div>
+                              </div>
+                              <div className="max-h-48 overflow-y-auto">
+                                {pickerOptions.length === 0
+                                  ? <p className="text-xs text-slate-400 italic px-3 py-3">Geen transacties gevonden.</p>
+                                  : pickerOptions.slice(0, 50).map(t => (
+                                    <button
+                                      key={t.id}
+                                      onClick={() => {
+                                        setMatchPopup(p => p ? { ...p, matchId: t.id, toAmount: t.amount } : null)
+                                        setMatchPickerOpen(false)
+                                      }}
+                                      className={cn(
+                                        'w-full flex items-center justify-between px-3 py-2 text-xs hover:bg-indigo-50 transition-colors text-left border-b border-slate-50 last:border-0',
+                                        t.id === matchPopup.matchId && 'bg-amber-50'
+                                      )}
+                                    >
+                                      <div className="min-w-0">
+                                        <span className="font-medium text-slate-700 block truncate max-w-[200px]">{t.description}</span>
+                                        <span className="text-slate-400">{formatDate(t.date)} · {accountMap[t.account_id]?.name ?? '—'}</span>
+                                      </div>
+                                      <span className={cn('font-semibold ml-2 shrink-0', t.type === 'income' ? 'text-emerald-600' : 'text-red-500')}>
+                                        {t.type === 'income' ? '+' : '-'}{formatCurrency(t.amount, t.currency)}
+                                      </span>
+                                    </button>
+                                  ))
+                                }
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Footer */}
+                      <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-slate-100">
+                        <button onClick={() => setMatchPopup(null)}
+                          className="px-4 py-2 text-sm text-slate-600 hover:text-slate-900 transition-colors">
+                          Annuleren
+                        </button>
+                        <button onClick={confirmMatch}
+                          className="flex items-center gap-2 px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-medium rounded-xl transition-colors">
+                          <Link2 size={14} />Koppelen
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
 
               {/* Cell edit dropdown (fixed overlay) */}
               {cellDropdown && (

@@ -1,4 +1,5 @@
 export type TransactionType = 'income' | 'expense' | 'transfer'
+export type TransactionStatus = 'draft' | 'processed'
 export type BankSource = 'rabobank' | 'wise' | 'revolut' | 'ocbc' | 'manual'
 export type AccountType = 'account' | 'jar'
 
@@ -40,6 +41,7 @@ export interface Transaction {
   notes?: string
   vendor?: string
   ai_categorized: boolean
+  status: TransactionStatus
   source: BankSource
   import_hash: string // dedup
   transfer_group_id?: string
