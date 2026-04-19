@@ -4,6 +4,7 @@ import { detectBank, parseCSV, parseOCBCPdf } from '@/lib/parsers'
 import type { ParsedTransaction } from '@/lib/parsers'
 
 export async function POST(req: NextRequest) {
+  try {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -26,7 +27,17 @@ export async function POST(req: NextRequest) {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const pdfParse = require('pdf-parse') as (buf: Buffer, opts?: { password?: string }) => Promise<{ text: string }>
     const buffer = Buffer.from(await file.arrayBuffer())
-    const { text } = await pdfParse(buffer, password ? { password } : undefined)
+    let text: string
+    try {
+      const result = await pdfParse(buffer, password ? { password } : undefined)
+      text = result.text
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.toLowerCase().includes('password') || msg.toLowerCase().includes('encrypted')) {
+        return NextResponse.json({ error: 'Het PDF-bestand is beveiligd. Vul het juiste wachtwoord in.' }, { status: 422 })
+      }
+      return NextResponse.json({ error: `Kon het PDF-bestand niet lezen: ${msg}` }, { status: 422 })
+    }
     parsed = parseOCBCPdf(text, currency)
     bank = 'ocbc'
     if (parsed.length === 0) return NextResponse.json({ error: 'Geen transacties gevonden in het PDF-bestand. Controleer of het een geldig OCBC-afschrift is.' }, { status: 422 })
@@ -55,7 +66,7 @@ export async function POST(req: NextRequest) {
     .eq('user_id', user.id)
   const vendors: { name: string; category: string }[] = vendorData || []
 
-  function matchVendor(description: string): { vendor: string; category: string } | null {
+  const matchVendor = (description: string): { vendor: string; category: string } | null => {
     const lower = description.toLowerCase()
     for (const v of vendors) {
       if (lower.includes(v.name.toLowerCase())) return { vendor: v.name, category: v.category }
@@ -89,4 +100,8 @@ export async function POST(req: NextRequest) {
 
   // Balance is only updated when transactions are moved from draft → processed
   return NextResponse.json({ imported: toInsert.length, skipped, bank })
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Onbekende fout'
+    return NextResponse.json({ error: `Serverfout: ${msg}` }, { status: 500 })
+  }
 }
