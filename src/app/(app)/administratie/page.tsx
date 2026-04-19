@@ -475,10 +475,11 @@ export default function AdministratiePage() {
     .filter(b => jars.some(a => a.id === b.account_id))
     .reduce((acc, b) => { acc[b.currency] = (acc[b.currency] || 0) + b.balance; return acc }, {} as Record<string, number>)
 
-  const spendingByCategory = transactions.filter(t => t.type === 'expense' && t.category)
+  const advanceCategoryNames = new Set(categories.filter(c => c.type === 'advance').map(c => c.name))
+  const spendingByCategory = transactions.filter(t => t.type === 'expense' && t.category && !advanceCategoryNames.has(t.category))
     .reduce((acc, t) => { acc[t.category!] = (acc[t.category!] || 0) + t.amount; return acc }, {} as Record<string, number>)
   const topCategories = Object.entries(spendingByCategory).sort((a, b) => b[1] - a[1]).slice(0, 8)
-  const totalExpenses = transactions.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
+  const totalExpenses = transactions.filter(t => t.type === 'expense' && !advanceCategoryNames.has(t.category ?? '')).reduce((s, t) => s + t.amount, 0)
 
   const draftCount = transactions.filter(t => t.status === 'draft').length
 

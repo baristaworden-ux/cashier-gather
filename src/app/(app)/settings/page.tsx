@@ -27,6 +27,7 @@ const DEFAULT_CATEGORIES = [
   { name: 'Abonnementen', type: 'expense' as const },
   { name: 'Overboekingen', type: 'expense' as const },
   { name: 'Overig', type: 'expense' as const },
+  { name: 'Voorgeschoten kosten', type: 'advance' as const },
 ]
 
 export default function SettingsPage() {
@@ -46,7 +47,7 @@ export default function SettingsPage() {
   // Categories
   const [categories, setCategories] = useState<AdminCategory[]>([])
   const [newCatName, setNewCatName] = useState('')
-  const [newCatType, setNewCatType] = useState<'expense' | 'income'>('expense')
+  const [newCatType, setNewCatType] = useState<'expense' | 'income' | 'advance'>('expense')
   const [savingCat, setSavingCat] = useState(false)
 
   // Vendors
@@ -308,8 +309,10 @@ export default function SettingsPage() {
                   <span className="text-sm font-medium text-slate-900">{cat.name}</span>
                   <div className="flex items-center gap-3">
                     <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full',
-                      cat.type === 'income' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600')}>
-                      {cat.type === 'income' ? 'Inkomsten' : 'Uitgaven'}
+                      cat.type === 'income' ? 'bg-emerald-100 text-emerald-700' :
+                      cat.type === 'advance' ? 'bg-amber-100 text-amber-700' :
+                      'bg-red-100 text-red-600')}>
+                      {cat.type === 'income' ? 'Inkomsten' : cat.type === 'advance' ? 'Voorschot' : 'Uitgaven'}
                     </span>
                     <button onClick={() => deleteCategory(cat.id)} className="text-slate-300 hover:text-red-400 transition-colors p-1">
                       <Trash2 size={14} />
@@ -324,10 +327,11 @@ export default function SettingsPage() {
               onChange={e => setNewCatName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && addCategory()}
               className="flex-1 px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
-            <select value={newCatType} onChange={e => setNewCatType(e.target.value as 'expense' | 'income')}
+            <select value={newCatType} onChange={e => setNewCatType(e.target.value as 'expense' | 'income' | 'advance')}
               className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
               <option value="expense">Uitgaven</option>
               <option value="income">Inkomsten</option>
+              <option value="advance">Voorschot</option>
             </select>
             <button onClick={addCategory} disabled={!newCatName.trim() || savingCat}
               className="px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm transition-colors disabled:opacity-50">

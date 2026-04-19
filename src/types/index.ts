@@ -70,7 +70,7 @@ export interface AdminCategory {
   id: string
   user_id: string
   name: string
-  type: 'expense' | 'income'
+  type: 'expense' | 'income' | 'advance'
   created_at: string
 }
 
