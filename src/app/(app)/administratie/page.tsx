@@ -66,6 +66,9 @@ export default function AdministratiePage() {
   const [detailTx, setDetailTx] = useState<Transaction | null>(null)
   const [detailEdits, setDetailEdits] = useState<{ description?: string; vendor?: string; category?: string; notes?: string; type?: TransactionType; date?: string }>({})
   const [savingDetail, setSavingDetail] = useState(false)
+  const [detailLinkOpen, setDetailLinkOpen] = useState(false)
+  const [detailLinkAccount, setDetailLinkAccount] = useState('')
+  const [detailLinkSearch, setDetailLinkSearch] = useState('')
 
   // Upload
   const [uploadFile, setUploadFile] = useState<File | null>(null)
@@ -269,6 +272,9 @@ export default function AdministratiePage() {
   function openDetail(tx: Transaction) {
     setDetailTx(tx)
     setDetailEdits({})
+    setDetailLinkOpen(false)
+    setDetailLinkAccount('')
+    setDetailLinkSearch('')
   }
 
   async function saveDetail() {
@@ -340,6 +346,29 @@ export default function AdministratiePage() {
     await fetch(`/api/transactions/link?id=${tx.id}`, { method: 'DELETE' })
     const groupId = tx.transfer_group_id
     setTransactions(txs => txs.map(t => t.transfer_group_id === groupId ? { ...t, transfer_group_id: undefined } : t))
+  }
+
+  async function linkFromDetail(targetId: string) {
+    if (!detailTx) return
+    const res = await fetch('/api/transactions/link', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id_a: detailTx.id, id_b: targetId }),
+    })
+    if (res.ok) {
+      const { transfer_group_id } = await res.json()
+      setTransactions(txs => txs.map(t =>
+        t.id === detailTx.id || t.id === targetId ? { ...t, transfer_group_id } : t
+      ))
+      setDetailTx(tx => tx ? { ...tx, transfer_group_id } : null)
+      setAiMatches(m => {
+        const next = { ...m }
+        const matchId = m[detailTx.id]
+        delete next[detailTx.id]
+        if (matchId) delete next[matchId]
+        return next
+      })
+      setDetailLinkOpen(false)
+    }
   }
 
   async function processTransaction(tx: Transaction) {
@@ -882,10 +911,17 @@ export default function AdministratiePage() {
                                       <button onClick={() => unlinkTransaction(tx)} className="text-slate-300 hover:text-red-400 transition-colors shrink-0"><Unlink size={12} /></button>
                                     </div>
                                   ) : aiMatches[tx.id] ? (
-                                    <button onClick={() => openMatchPopup(tx)}
-                                      className="flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border transition-colors bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100">
-                                      <Sparkles size={10} />Found match
-                                    </button>
+                                    <div className="flex items-center gap-1">
+                                      <button onClick={() => openMatchPopup(tx)}
+                                        className="flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border transition-colors bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100">
+                                        <Sparkles size={10} />Found match
+                                      </button>
+                                      <button
+                                        onClick={() => setAiMatches(m => { const next = { ...m }; const mid = m[tx.id]; delete next[tx.id]; if (mid) delete next[mid]; return next })}
+                                        className="text-slate-300 hover:text-slate-500 transition-colors" title="Verwijderen">
+                                        <X size={11} />
+                                      </button>
+                                    </div>
                                   ) : tx.type === 'transfer' ? (
                                     <button onClick={() => openLinkPanel(tx)}
                                       className={cn('flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border transition-colors',
@@ -1403,6 +1439,116 @@ export default function AdministratiePage() {
                   className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 resize-none"
                 />
               </div>
+
+              {/* Koppeling */}
+              {(() => {
+                const linked = detailTx.transfer_group_id
+                  ? transactions.find(t => t.id !== detailTx.id && t.transfer_group_id === detailTx.transfer_group_id)
+                  : null
+                const aiMatchId = aiMatches[detailTx.id]
+                const aiMatchTx = aiMatchId ? transactions.find(t => t.id === aiMatchId) : null
+                return (
+                  <div className="space-y-2 pt-1">
+                    <label className="text-xs font-medium text-slate-600">Koppeling</label>
+                    {linked ? (
+                      <div className="flex items-center justify-between bg-indigo-50 border border-indigo-200 rounded-xl px-3 py-2.5">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Link2 size={13} className="text-indigo-500 shrink-0" />
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium text-indigo-700 truncate">{linked.description}</p>
+                            <p className="text-xs text-indigo-400">{accountMap[linked.account_id]?.name ?? '—'} · {formatDate(linked.date)} · {linked.type === 'income' ? '+' : '-'}{formatCurrency(linked.amount, linked.currency)}</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => { unlinkTransaction(detailTx); setDetailTx(tx => tx ? { ...tx, transfer_group_id: undefined } : null) }}
+                          className="text-slate-300 hover:text-red-400 transition-colors shrink-0 ml-2" title="Ontkoppelen">
+                          <Unlink size={13} />
+                        </button>
+                      </div>
+                    ) : aiMatchTx ? (
+                      <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Sparkles size={13} className="text-amber-500 shrink-0" />
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium text-amber-700 truncate">{aiMatchTx.description}</p>
+                            <p className="text-xs text-amber-500">{accountMap[aiMatchTx.account_id]?.name ?? '—'} · {formatDate(aiMatchTx.date)} · {aiMatchTx.type === 'income' ? '+' : '-'}{formatCurrency(aiMatchTx.amount, aiMatchTx.currency)}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                          <button onClick={() => linkFromDetail(aiMatchTx.id)}
+                            className="text-xs font-medium px-2 py-1 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg transition-colors">
+                            Koppelen
+                          </button>
+                          <button
+                            onClick={() => setAiMatches(m => { const next = { ...m }; delete next[detailTx.id]; if (aiMatchId) delete next[aiMatchId]; return next })}
+                            className="text-slate-300 hover:text-slate-500 transition-colors" title="Verwijderen">
+                            <X size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-400 italic">Geen koppeling</p>
+                    )}
+
+                    {!linked && (
+                      <button onClick={() => setDetailLinkOpen(o => !o)}
+                        className="flex items-center gap-1.5 text-xs text-indigo-500 hover:text-indigo-700 transition-colors font-medium">
+                        <Link2 size={11} />
+                        {detailLinkOpen ? 'Zoeker sluiten' : 'Handmatig koppelen…'}
+                      </button>
+                    )}
+
+                    {detailLinkOpen && !linked && (
+                      <div className="border border-slate-200 rounded-xl overflow-hidden">
+                        <div className="flex gap-2 p-2 border-b border-slate-100">
+                          <select value={detailLinkAccount} onChange={e => setDetailLinkAccount(e.target.value)}
+                            className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white shrink-0">
+                            <option value="">Alle rekeningen</option>
+                            {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                          </select>
+                          <div className="relative flex-1">
+                            <Search size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                            <input
+                              autoFocus
+                              type="text"
+                              placeholder="Transactie zoeken…"
+                              value={detailLinkSearch}
+                              onChange={e => setDetailLinkSearch(e.target.value)}
+                              className="w-full pl-6 pr-2 py-1.5 text-xs border border-slate-200 rounded-lg outline-none focus:border-indigo-400"
+                            />
+                          </div>
+                        </div>
+                        <div className="max-h-48 overflow-y-auto">
+                          {(() => {
+                            const opts = transactions.filter(t =>
+                              t.id !== detailTx.id &&
+                              (!detailLinkAccount || t.account_id === detailLinkAccount) &&
+                              (!detailLinkSearch ||
+                                t.description.toLowerCase().includes(detailLinkSearch.toLowerCase()) ||
+                                (accountMap[t.account_id]?.name ?? '').toLowerCase().includes(detailLinkSearch.toLowerCase()) ||
+                                formatCurrency(t.amount, t.currency).includes(detailLinkSearch))
+                            )
+                            return opts.length === 0
+                              ? <p className="text-xs text-slate-400 italic px-3 py-3">Geen transacties gevonden.</p>
+                              : opts.slice(0, 50).map(t => (
+                                <button key={t.id} onClick={() => linkFromDetail(t.id)}
+                                  className="w-full flex items-center justify-between px-3 py-2 text-xs hover:bg-indigo-50 transition-colors text-left border-b border-slate-50 last:border-0">
+                                  <div className="min-w-0">
+                                    <span className="font-medium text-slate-700 block truncate max-w-[220px]">{t.description}</span>
+                                    <span className="text-slate-400">{formatDate(t.date)} · {accountMap[t.account_id]?.name ?? '—'}</span>
+                                  </div>
+                                  <span className={cn('font-semibold ml-2 shrink-0', t.type === 'income' ? 'text-emerald-600' : 'text-red-500')}>
+                                    {t.type === 'income' ? '+' : '-'}{formatCurrency(t.amount, t.currency)}
+                                  </span>
+                                </button>
+                              ))
+                          })()}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
             </div>
 
             {/* Footer */}
