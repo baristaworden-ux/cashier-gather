@@ -15,6 +15,7 @@ export async function POST(req: NextRequest) {
 
   if (!file || !account_id) return NextResponse.json({ error: 'Missing file or account_id' }, { status: 400 })
 
+  const password = (formData.get('password') as string) || ''
   const isPdf = file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf'
 
   let parsed: ParsedTransaction[]
@@ -23,9 +24,9 @@ export async function POST(req: NextRequest) {
   if (isPdf) {
     // PDF upload — only OCBC statements are PDFs
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const pdfParse = require('pdf-parse') as (buf: Buffer) => Promise<{ text: string }>
+    const pdfParse = require('pdf-parse') as (buf: Buffer, opts?: { password?: string }) => Promise<{ text: string }>
     const buffer = Buffer.from(await file.arrayBuffer())
-    const { text } = await pdfParse(buffer)
+    const { text } = await pdfParse(buffer, password ? { password } : undefined)
     parsed = parseOCBCPdf(text, currency)
     bank = 'ocbc'
     if (parsed.length === 0) return NextResponse.json({ error: 'Geen transacties gevonden in het PDF-bestand. Controleer of het een geldig OCBC-afschrift is.' }, { status: 422 })

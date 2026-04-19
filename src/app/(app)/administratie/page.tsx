@@ -66,6 +66,7 @@ export default function AdministratiePage() {
   const [uploadFile, setUploadFile] = useState<File | null>(null)
   const [uploadAccount, setUploadAccount] = useState('')
   const [uploadCurrency, setUploadCurrency] = useState('EUR')
+  const [uploadPassword, setUploadPassword] = useState('')
   const [uploading, setUploading] = useState(false)
   const [uploadResult, setUploadResult] = useState<{ imported: number; skipped: number } | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
@@ -410,6 +411,7 @@ export default function AdministratiePage() {
     formData.append('file', uploadFile)
     formData.append('account_id', uploadAccount)
     formData.append('currency', uploadCurrency)
+    if (uploadPassword) formData.append('password', uploadPassword)
     const res = await fetch('/api/upload', { method: 'POST', body: formData })
     const data = await res.json()
     if (res.ok) { setUploadResult(data); await loadData() }
@@ -1103,9 +1105,17 @@ export default function AdministratiePage() {
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-slate-600">Bestand (CSV of PDF) <span className="text-red-400">*</span></label>
-                  <input type="file" accept=".csv,.txt,.pdf" onChange={e => setUploadFile(e.target.files?.[0] ?? null)}
+                  <input type="file" accept=".csv,.txt,.pdf" onChange={e => { setUploadFile(e.target.files?.[0] ?? null); setUploadPassword('') }}
                     className="w-full text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
                 </div>
+                {uploadFile?.name.toLowerCase().endsWith('.pdf') && (
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-slate-600">PDF wachtwoord <span className="text-slate-400">(indien beveiligd)</span></label>
+                    <input type="password" value={uploadPassword} onChange={e => setUploadPassword(e.target.value)}
+                      placeholder="Laat leeg als geen wachtwoord"
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+                  </div>
+                )}
                 <button onClick={handleUpload} disabled={!uploadFile || !uploadAccount || uploading}
                   className="w-full flex items-center justify-center gap-2 bg-indigo-500 hover:bg-indigo-600 text-white font-medium py-2.5 rounded-xl text-sm transition-colors disabled:opacity-50">
                   <Upload size={15} />
