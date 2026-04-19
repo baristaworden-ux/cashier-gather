@@ -204,6 +204,18 @@ export default function AdministratiePage() {
     const update: Record<string, string | null> = { [field]: value || null }
     const tx = transactions.find(t => t.id === txId)
 
+    // When category changes, update the vendor record so future imports learn from it
+    if (field === 'category' && value && tx?.vendor) {
+      const existingVendor = vendors.find(v => v.name === tx.vendor)
+      if (existingVendor && existingVendor.category !== value) {
+        await fetch('/api/vendors', {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: existingVendor.id, category: value }),
+        })
+        setVendors(vs => vs.map(v => v.id === existingVendor.id ? { ...v, category: value } : v))
+      }
+    }
+
     if (field === 'vendor' && value) {
       const existingVendor = vendors.find(v => v.name === value)
       if (existingVendor?.category) {
@@ -262,6 +274,21 @@ export default function AdministratiePage() {
   async function saveDetail() {
     if (!detailTx || Object.keys(detailEdits).length === 0) { setDetailTx(null); return }
     setSavingDetail(true)
+
+    // If category changed and transaction has a vendor, update the vendor record
+    const newCategory = detailEdits.category
+    const vendorName = detailEdits.vendor ?? detailTx.vendor
+    if (newCategory && vendorName) {
+      const existingVendor = vendors.find(v => v.name === vendorName)
+      if (existingVendor && existingVendor.category !== newCategory) {
+        await fetch('/api/vendors', {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: existingVendor.id, category: newCategory }),
+        })
+        setVendors(vs => vs.map(v => v.id === existingVendor.id ? { ...v, category: newCategory } : v))
+      }
+    }
+
     await fetch('/api/transactions', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: detailTx.id, ...detailEdits }),
