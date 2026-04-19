@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { Account, AccountBalance, Transaction, Vendor, AdminCategory } from '@/types'
+import { Account, AccountBalance, Transaction, TransactionType, Vendor, AdminCategory } from '@/types'
 import { formatCurrency, formatDate, cn, CURRENCIES } from '@/lib/utils'
 import { Upload, Sparkles, Search, ArrowUpDown, Link2, Unlink, PiggyBank, ChevronRight, X, Plus, Trash2, RotateCcw } from 'lucide-react'
 
@@ -61,6 +61,11 @@ export default function AdministratiePage() {
   const [matchPopupSearch, setMatchPopupSearch] = useState('')
   const [matchPickerOpen, setMatchPickerOpen] = useState(false)
   const matchPopupRef = useRef<HTMLDivElement>(null)
+
+  // Transaction detail popup
+  const [detailTx, setDetailTx] = useState<Transaction | null>(null)
+  const [detailEdits, setDetailEdits] = useState<{ description?: string; vendor?: string; category?: string; notes?: string; type?: TransactionType; date?: string }>({})
+  const [savingDetail, setSavingDetail] = useState(false)
 
   // Upload
   const [uploadFile, setUploadFile] = useState<File | null>(null)
@@ -248,6 +253,23 @@ export default function AdministratiePage() {
     setTransactions(txs => txs.map(t => t.id === txId ? { ...t, ...update } : t))
     setCellDropdown(null)
   }, [vendors, transactions])
+
+  function openDetail(tx: Transaction) {
+    setDetailTx(tx)
+    setDetailEdits({})
+  }
+
+  async function saveDetail() {
+    if (!detailTx || Object.keys(detailEdits).length === 0) { setDetailTx(null); return }
+    setSavingDetail(true)
+    await fetch('/api/transactions', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: detailTx.id, ...detailEdits }),
+    })
+    setTransactions(txs => txs.map(t => t.id === detailTx.id ? { ...t, ...detailEdits } : t))
+    setSavingDetail(false)
+    setDetailTx(null)
+  }
 
   const categoryNames = categories.map(c => c.name)
   const vendorNames = vendors.map(v => v.name)
@@ -799,7 +821,11 @@ export default function AdministratiePage() {
                                   </button>
                                 </td>
 
-                                <td className="px-4 py-2.5 text-slate-700 max-w-xs truncate text-xs">{tx.description}</td>
+                                <td className="px-4 py-2.5 max-w-xs">
+                                  <button onClick={() => openDetail(tx)} className="text-xs text-slate-700 truncate max-w-full block text-left hover:text-indigo-600 transition-colors" title={tx.description}>
+                                    {tx.description}
+                                  </button>
+                                </td>
 
                                 {/* Categorie — clickable */}
                                 <td className="px-4 py-2.5 hidden md:table-cell">
@@ -1245,6 +1271,128 @@ export default function AdministratiePage() {
             </div>
           )}
         </>
+      )}
+
+      {/* ── TRANSACTION DETAIL MODAL ── */}
+      {detailTx && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={() => setDetailTx(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-start justify-between p-6 border-b border-slate-100">
+              <div>
+                <p className="text-xs text-slate-400 mb-1">{formatDate(detailEdits.date ?? detailTx.date)} · {accountMap[detailTx.account_id]?.name ?? '—'} · {detailTx.currency}</p>
+                <p className={cn('text-2xl font-bold', detailTx.type === 'income' ? 'text-emerald-600' : 'text-red-500')}>
+                  {detailTx.type === 'income' ? '+' : '-'}{formatCurrency(detailTx.amount, detailTx.currency)}
+                </p>
+              </div>
+              <button onClick={() => setDetailTx(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Fields */}
+            <div className="p-6 space-y-4">
+              {/* Bankbeschrijving (readonly) */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-500">Bankbeschrijving</label>
+                <p className="text-sm text-slate-700 bg-slate-50 rounded-lg px-3 py-2 break-words">{detailTx.original_description || detailTx.description}</p>
+              </div>
+
+              {/* Omschrijving (editable) */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-600">Omschrijving</label>
+                <input
+                  type="text"
+                  value={detailEdits.description ?? detailTx.description}
+                  onChange={e => setDetailEdits(d => ({ ...d, description: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                {/* Datum */}
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-slate-600">Datum</label>
+                  <input
+                    type="date"
+                    value={detailEdits.date ?? detailTx.date}
+                    onChange={e => setDetailEdits(d => ({ ...d, date: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400"
+                  />
+                </div>
+
+                {/* Type */}
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-slate-600">Type</label>
+                  <select
+                    value={detailEdits.type ?? detailTx.type}
+                    onChange={e => setDetailEdits(d => ({ ...d, type: e.target.value as TransactionType }))}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white"
+                  >
+                    <option value="expense">Uitgave</option>
+                    <option value="income">Inkomsten</option>
+                    <option value="transfer">Overboeking</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                {/* Leverancier */}
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-slate-600">Leverancier</label>
+                  <input
+                    type="text"
+                    list="detail-vendors"
+                    value={detailEdits.vendor ?? detailTx.vendor ?? ''}
+                    onChange={e => setDetailEdits(d => ({ ...d, vendor: e.target.value }))}
+                    placeholder="—"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400"
+                  />
+                  <datalist id="detail-vendors">{vendorNames.map(v => <option key={v} value={v} />)}</datalist>
+                </div>
+
+                {/* Categorie */}
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-slate-600">Categorie</label>
+                  <select
+                    value={detailEdits.category ?? detailTx.category ?? ''}
+                    onChange={e => setDetailEdits(d => ({ ...d, category: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white"
+                  >
+                    <option value="">— geen —</option>
+                    {categoryNames.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* Notities */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-600">Notities</label>
+                <textarea
+                  rows={3}
+                  value={detailEdits.notes ?? detailTx.notes ?? ''}
+                  onChange={e => setDetailEdits(d => ({ ...d, notes: e.target.value }))}
+                  placeholder="Voeg een notitie toe…"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 resize-none"
+                />
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-100">
+              <button onClick={() => setDetailTx(null)} className="px-4 py-2 text-sm text-slate-600 hover:text-slate-900 transition-colors">
+                Annuleren
+              </button>
+              <button
+                onClick={saveDetail}
+                disabled={savingDetail || Object.keys(detailEdits).length === 0}
+                className="px-5 py-2 text-sm font-medium bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl transition-colors disabled:opacity-50"
+              >
+                {savingDetail ? 'Opslaan…' : 'Opslaan'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
