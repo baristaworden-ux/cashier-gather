@@ -67,6 +67,7 @@ export default function AdministratiePage() {
   const [uploadAccount, setUploadAccount] = useState('')
   const [uploadCurrency, setUploadCurrency] = useState('EUR')
   const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
   const [uploadResult, setUploadResult] = useState<{ imported: number; skipped: number } | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
 
@@ -405,16 +406,33 @@ export default function AdministratiePage() {
 
   async function handleUpload() {
     if (!uploadFile || !uploadAccount) return
-    setUploading(true); setUploadResult(null); setUploadError(null)
+    setUploading(true); setUploadResult(null); setUploadError(null); setUploadProgress(0)
+
+    // Simulate progress: crawl to 85% while waiting for the API
+    const isPdf = uploadFile.name.toLowerCase().endsWith('.pdf')
+    const interval = setInterval(() => {
+      setUploadProgress(p => {
+        const ceiling = isPdf ? 82 : 70
+        if (p >= ceiling) return p
+        const step = p < 30 ? 4 : p < 60 ? 2 : 0.5
+        return Math.min(p + step, ceiling)
+      })
+    }, isPdf ? 400 : 200)
+
     const formData = new FormData()
     formData.append('file', uploadFile)
     formData.append('account_id', uploadAccount)
     formData.append('currency', uploadCurrency)
     const res = await fetch('/api/upload', { method: 'POST', body: formData })
     const data = await res.json()
+
+    clearInterval(interval)
+    setUploadProgress(100)
+
     if (res.ok) { setUploadResult(data); await loadData() }
     else setUploadError(data.error || 'Er is een fout opgetreden.')
-    setUploading(false)
+
+    setTimeout(() => { setUploading(false); setUploadProgress(0) }, 600)
   }
 
   async function categorizeAll() {
@@ -1111,6 +1129,20 @@ export default function AdministratiePage() {
                   <Upload size={15} />
                   {uploading ? 'Uploaden…' : 'Importeren'}
                 </button>
+                {uploading && (
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-xs text-slate-500">
+                      <span>{uploadProgress < 100 ? (uploadFile?.name.toLowerCase().endsWith('.pdf') ? 'PDF verwerken via AI…' : 'Bestand verwerken…') : 'Klaar!'}</span>
+                      <span>{Math.round(uploadProgress)}%</span>
+                    </div>
+                    <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-indigo-500 rounded-full transition-all duration-300 ease-out"
+                        style={{ width: `${uploadProgress}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
                 {uploadResult && (
                   <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-sm text-emerald-700">
                     ✓ <strong>{uploadResult.imported}</strong> transacties geïmporteerd
