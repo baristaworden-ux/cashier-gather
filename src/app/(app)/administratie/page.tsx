@@ -1084,7 +1084,7 @@ export default function AdministratiePage() {
             <div className="max-w-lg space-y-6">
               <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4">
                 <h2 className="font-semibold text-slate-900">Bank statement uploaden</h2>
-                <p className="text-sm text-slate-500">Ondersteunde banken: Rabobank, Wise, Revolut, OCBC Indonesia.</p>
+                <p className="text-sm text-slate-500">Ondersteunde banken: Rabobank, Wise, Revolut (CSV) en OCBC Indonesia (PDF of CSV).</p>
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-slate-600">Rekening of jar <span className="text-red-400">*</span></label>
                   <select value={uploadAccount} onChange={e => setUploadAccount(e.target.value)}
@@ -1102,8 +1102,8 @@ export default function AdministratiePage() {
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-slate-600">CSV-bestand <span className="text-red-400">*</span></label>
-                  <input type="file" accept=".csv,.txt" onChange={e => setUploadFile(e.target.files?.[0] ?? null)}
+                  <label className="text-xs font-medium text-slate-600">Bestand (CSV of PDF) <span className="text-red-400">*</span></label>
+                  <input type="file" accept=".csv,.txt,.pdf" onChange={e => setUploadFile(e.target.files?.[0] ?? null)}
                     className="w-full text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
                 </div>
                 <button onClick={handleUpload} disabled={!uploadFile || !uploadAccount || uploading}

@@ -122,6 +122,81 @@ export function parseOCBC(csv: string, currency = 'IDR'): ParsedTransaction[] {
   })
 }
 
+// ─── OCBC Indonesia PDF ───────────────────────────────────────────────────────
+// Parses text extracted from OCBC Indonesia bank statement PDFs.
+// Expected row format: "DD Mon YYYY  Description  [Withdrawal]  [Deposit]  Balance"
+export function parseOCBCPdf(text: string, currency = 'IDR'): ParsedTransaction[] {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
+  const results: ParsedTransaction[] = []
+
+  const datePattern = /^(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i
+  const amountPattern = /[\d,]+\.\d{2}/g
+  const monthMap: Record<string, string> = {
+    jan:'01', feb:'02', mar:'03', apr:'04', may:'05', jun:'06',
+    jul:'07', aug:'08', sep:'09', oct:'10', nov:'11', dec:'12',
+  }
+
+  function parseOCBCDate(dateStr: string): string {
+    const m = dateStr.match(/(\d{1,2})\s+(\w{3})\s+(\d{4})/i)
+    if (m) return `${m[3]}-${monthMap[m[2].toLowerCase()] ?? '01'}-${m[1].padStart(2, '0')}`
+    return normalizeDate(dateStr)
+  }
+
+  let prevBalance: number | null = null
+
+  for (const line of lines) {
+    const dateMatch = line.match(datePattern)
+    if (!dateMatch) continue
+
+    const dateStr = dateMatch[1]
+
+    // Skip opening balance / header rows
+    if (/opening\s*balance|brought\s*forward|saldo\s*awal/i.test(line)) {
+      const amounts = Array.from(line.matchAll(amountPattern)).map(m => parseFloat(m[0].replace(/,/g, '')))
+      if (amounts.length > 0) prevBalance = amounts[amounts.length - 1]
+      continue
+    }
+
+    const amounts = Array.from(line.matchAll(amountPattern)).map(m => parseFloat(m[0].replace(/,/g, '')))
+    if (amounts.length === 0) continue
+
+    const balance = amounts[amounts.length - 1]
+
+    // Transaction amount is second-to-last, or derived from balance delta
+    let amount: number
+    if (amounts.length >= 2) {
+      amount = amounts[amounts.length - 2]
+    } else if (prevBalance !== null) {
+      amount = Math.abs(balance - prevBalance)
+    } else {
+      prevBalance = balance
+      continue
+    }
+
+    if (amount === 0) { prevBalance = balance; continue }
+
+    const type: 'income' | 'expense' = (prevBalance !== null && balance > prevBalance) ? 'income' : 'expense'
+
+    // Description = everything between date and first amount
+    const firstAmountPos = line.search(/[\d,]+\.\d{2}/)
+    const desc = line.slice(dateMatch[0].length, firstAmountPos > 0 ? firstAmountPos : undefined).trim() || 'OCBC Transactie'
+
+    const normalizedDate = parseOCBCDate(dateStr)
+    prevBalance = balance
+
+    results.push({
+      date: normalizedDate,
+      description: desc,
+      amount,
+      currency,
+      type,
+      import_hash: hash(`ocbc-pdf-${normalizedDate}-${desc}-${amount}-${currency}`),
+    })
+  }
+
+  return results
+}
+
 // ─── Auto-detect bank ────────────────────────────────────────────────────────
 export function detectBank(csv: string): BankSource | null {
   const header = csv.slice(0, 300).toLowerCase()

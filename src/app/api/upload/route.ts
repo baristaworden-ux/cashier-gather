@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { detectBank, parseCSV } from '@/lib/parsers'
+import { detectBank, parseCSV, parseOCBCPdf } from '@/lib/parsers'
+import type { ParsedTransaction } from '@/lib/parsers'
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
@@ -14,11 +15,28 @@ export async function POST(req: NextRequest) {
 
   if (!file || !account_id) return NextResponse.json({ error: 'Missing file or account_id' }, { status: 400 })
 
-  const csv = await file.text()
-  const bank = detectBank(csv)
-  if (!bank) return NextResponse.json({ error: 'Kon de bank niet herkennen. Controleer of het een geldig CSV-bestand is van Rabobank, Wise, Revolut of OCBC.' }, { status: 422 })
+  const isPdf = file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf'
 
-  const parsed = parseCSV(csv, bank, currency)
+  let parsed: ParsedTransaction[]
+  let bank: string
+
+  if (isPdf) {
+    // PDF upload — only OCBC statements are PDFs
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const pdfParse = require('pdf-parse') as (buf: Buffer) => Promise<{ text: string }>
+    const buffer = Buffer.from(await file.arrayBuffer())
+    const { text } = await pdfParse(buffer)
+    parsed = parseOCBCPdf(text, currency)
+    bank = 'ocbc'
+    if (parsed.length === 0) return NextResponse.json({ error: 'Geen transacties gevonden in het PDF-bestand. Controleer of het een geldig OCBC-afschrift is.' }, { status: 422 })
+  } else {
+    const csv = await file.text()
+    const detectedBank = detectBank(csv)
+    if (!detectedBank) return NextResponse.json({ error: 'Kon de bank niet herkennen. Controleer of het een geldig CSV-bestand is van Rabobank, Wise, Revolut of OCBC.' }, { status: 422 })
+    bank = detectedBank
+    parsed = parseCSV(csv, detectedBank, currency)
+  }
+
   if (parsed.length === 0) return NextResponse.json({ error: 'Geen transacties gevonden in het bestand.' }, { status: 422 })
 
   // Get existing hashes to detect duplicates
