@@ -42,21 +42,23 @@ export async function POST(req: NextRequest) {
       ? `\nBekende leveranciers (naam → standaard categorie):\n${vendors.map(v => `- ${v.name} → ${v.category}`).join('\n')}`
       : ''
 
-    const prompt = `Analyseer de volgende banktransacties. Identificeer voor elke transactie:
-1. De leverancier (vendor) — de naam van het bedrijf of persoon in de omschrijving. Gebruik een van de bekende leveranciers als die overeenkomt, anders een korte herkenbare naam.
-2. De categorie — kies uit: ${categories.join(', ')}
+    const prompt = `Analyseer de volgende banktransacties. Geef voor elke transactie:
+1. vendor — naam van het bedrijf of persoon. Gebruik een bekende leverancier als die overeenkomt, anders een korte herkenbare naam.
+2. category — kies uit: ${categories.join(', ')}
+3. description — een korte, leesbare omschrijving in het Nederlands (max ~40 tekens). Vervang de cryptische bankcode door iets begrijpelijks, bijv. "Boodschappen Albert Heijn", "Huur januari", "Salaris", "Netflix abonnement".
 ${vendorHint}
 
 Transacties:
 ${JSON.stringify(batch)}
 
 Geef je antwoord ALLEEN als een JSON array:
-[{"id": "...", "vendor": "...", "category": "..."}]
+[{"id": "...", "vendor": "...", "category": "...", "description": "..."}]
 
 Regels:
-- vendor: korte naam, bijv. "Albert Heijn", "NS", "Spotify". Leeg string als echt onbekend.
+- vendor: korte naam. Leeg string als echt onbekend.
 - category: altijd een waarde uit de lijst
-- Voor inkomsten: gebruik "Inkomen" of "Overboekingen"
+- description: kort en begrijpelijk, geen bankcodes of ID's
+- Voor inkomsten: category "Inkomen" of "Overboekingen"
 - Antwoord ALLEEN met de JSON array`
 
     const message = await anthropic.messages.create({
@@ -70,16 +72,18 @@ Regels:
     try {
       const jsonMatch = text.match(/\[[\s\S]*\]/)
       if (!jsonMatch) continue
-      const results: { id: string; vendor: string; category: string }[] = JSON.parse(jsonMatch[0])
+      const results: { id: string; vendor: string; category: string; description?: string }[] = JSON.parse(jsonMatch[0])
 
       for (const result of results) {
+        const update: Record<string, string | boolean | null> = {
+          vendor: result.vendor || null,
+          category: result.category,
+          ai_categorized: true,
+        }
+        if (result.description) update.description = result.description
         await supabase
           .from('admin_transactions')
-          .update({
-            vendor: result.vendor || null,
-            category: result.category,
-            ai_categorized: true,
-          })
+          .update(update)
           .eq('id', result.id)
           .eq('user_id', user.id)
         totalCategorized++
