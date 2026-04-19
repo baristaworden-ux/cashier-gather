@@ -1,3 +1,12 @@
+// pdf-parse uses pdfjs-dist which references DOMMatrix (a browser API).
+// This minimal polyfill prevents a crash during server-side text extraction.
+if (typeof globalThis.DOMMatrix === 'undefined') {
+  // @ts-expect-error polyfill
+  globalThis.DOMMatrix = class DOMMatrix {
+    static fromMatrix() { return new globalThis.DOMMatrix() }
+  }
+}
+
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { detectBank, parseCSV, parseOCBCPdf } from '@/lib/parsers'
