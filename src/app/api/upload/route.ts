@@ -18,7 +18,7 @@ async function extractOCBCFromPdf(buffer: Buffer, currency: string): Promise<Par
 
   const message = await client.beta.messages.create({
     model: 'claude-haiku-4-5-20251001',
-    max_tokens: 4096,
+    max_tokens: 8192,
     betas: ['pdfs-2024-09-25'],
     messages: [{
       role: 'user',
@@ -29,13 +29,18 @@ async function extractOCBCFromPdf(buffer: Buffer, currency: string): Promise<Par
         },
         {
           type: 'text',
-          text: `Extract all bank transactions from this OCBC bank statement. Return ONLY a JSON array, no other text. Each object must have:
-- date: string (YYYY-MM-DD)
-- description: string
-- amount: number (always positive)
-- type: "income" or "expense"
+          text: `This is an OCBC Indonesia bank statement. It may contain multiple currency sections (e.g. IDR, EUR, CHF), each starting with "Currency Code : XXX".
 
-Skip opening balance, closing balance, and any non-transaction rows.`,
+Extract ALL transactions from ALL currency sections. Return ONLY a raw JSON array — no markdown, no code fences, no explanation. Start with [ and end with ].
+
+Each object must have:
+- date: "YYYY-MM-DD" (convert from DD/MM/YYYY format)
+- description: string (main description line; append the "Berita:" note if present, separated by " - ")
+- amount: number (always positive; use the non-zero value from DEBET or KREDIT column)
+- type: "income" if KREDIT > 0, "expense" if DEBET > 0
+- currency: the currency code for that section ("IDR", "EUR", "CHF", etc.)
+
+Skip these rows: Beginning Balance, closing balance summary, JASA REKENING/ACCOUNT INTEREST, PAJAK/TAX, and any row where both DEBET and KREDIT are 0.00.`,
         },
       ],
     }],
@@ -45,15 +50,15 @@ Skip opening balance, closing balance, and any non-transaction rows.`,
   const jsonMatch = raw.match(/\[[\s\S]*\]/)
   if (!jsonMatch) return []
 
-  const rows: { date: string; description: string; amount: number; type: string }[] = JSON.parse(jsonMatch[0])
+  const rows: { date: string; description: string; amount: number; type: string; currency?: string }[] = JSON.parse(jsonMatch[0])
 
   return rows.map(r => ({
     date: r.date,
     description: r.description,
     amount: Math.abs(r.amount),
-    currency,
+    currency: r.currency || currency,
     type: r.type === 'income' ? 'income' : 'expense',
-    import_hash: hash(`ocbc-pdf-${r.date}-${r.description}-${r.amount}-${currency}`),
+    import_hash: hash(`ocbc-pdf-${r.date}-${r.description}-${r.amount}-${r.currency || currency}`),
   }))
 }
 
