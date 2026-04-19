@@ -31,16 +31,27 @@ export async function POST(req: NextRequest) {
       type: t.type,
     }))
 
-    const prompt = `Vereenvoudig de ruwe bankbeschrijvingen hieronder naar korte, begrijpelijke Nederlandse omschrijvingen (max ~45 tekens).
-- Vervang cryptische bankcodes, IBAN-nummers en ID's door iets leesbaars
-- Gebruik de leveranciersnaam als die bekend is
-- Hou het bondig: "Boodschappen Albert Heijn", "Huur januari", "Salaris", "Netflix abonnement"
-- Voor inkomsten: beschrijf de bron. Voor uitgaven: beschrijf waarvoor.
+    const prompt = `Extract the merchant or business name from each raw bank transaction description. Return only the clean name — nothing else.
 
-Transacties:
+Rules:
+- Strip all prefixes like "Pos Sales Debit", "Post Sales Debit", "POS Purchase", "Card Payment", "Direct Debit", "SEPA", "iDEAL", transaction codes, dates, IBAN numbers, city names, and reference numbers
+- Return just the merchant name as it appears, e.g. "PUTRI FRESH ORGANIC", "Albert Heijn", "Netflix", "Spotify"
+- If the vendor field is already set, use that as the description
+- If it's a salary or wage transfer and no merchant is obvious, return "Salaris"
+- If it's a transfer between own accounts, return "Overboeking"
+- If truly nothing useful remains, return the shortest meaningful part of the raw text
+- Max 50 characters
+
+Examples:
+"Pos Sales Debit/Post Sales Debit - 2630 PUTRI FRESH ORGANIC Badung (Kab)" → "PUTRI FRESH ORGANIC"
+"iDEAL betaling aan Albert Heijn 123456" → "Albert Heijn"
+"SEPA Overboeking NL12RABO0123456789 omschrijving: huur" → "Overboeking"
+"Netflix International BV AMSTERDAM" → "Netflix"
+
+Transactions:
 ${JSON.stringify(batch)}
 
-Geef ALLEEN een JSON array terug:
+Return ONLY a JSON array:
 [{"id": "...", "description": "..."}]`
 
     const message = await anthropic.messages.create({
