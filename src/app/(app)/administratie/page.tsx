@@ -33,6 +33,7 @@ export default function AdministratiePage() {
   const [categories, setCategories] = useState<AdminCategory[]>([])
   const [loading, setLoading] = useState(true)
   const [categorizing, setCategorizing] = useState(false)
+  const [simplifying, setSimplifying] = useState(false)
   const [uncategorizedCount, setUncategorizedCount] = useState(0)
 
   // Transaction filters
@@ -540,6 +541,24 @@ export default function AdministratiePage() {
   }
 
 
+  async function simplifyDescriptions() {
+    setSimplifying(true)
+    // All transactions that have an original_description (raw bank text) stored
+    const ids = transactions.filter(t => t.original_description).map(t => t.id)
+    if (ids.length > 0) {
+      await fetch('/api/simplify', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transaction_ids: ids }),
+      })
+      const txRes = await fetch('/api/transactions?limit=500')
+      if (txRes.ok) {
+        const d = await txRes.json()
+        setTransactions(d.transactions || [])
+      }
+    }
+    setSimplifying(false)
+  }
+
   // ── Derived data ─────────────────────────────────────────────────────────────
   const regularAccounts = accounts.filter(a => a.account_type !== 'jar')
   const jars = accounts.filter(a => a.account_type === 'jar')
@@ -601,13 +620,22 @@ export default function AdministratiePage() {
           <h1 className="text-2xl font-semibold">Administratie</h1>
           <p className="text-sm text-slate-500 mt-1">Bankrekeningen, transacties & overzichten.</p>
         </div>
-        {uncategorizedCount > 0 && (
-          <button onClick={categorizeAll} disabled={categorizing}
-            className="flex items-center gap-2 px-4 py-2 bg-violet-500 hover:bg-violet-600 text-white text-sm font-medium rounded-xl transition-colors disabled:opacity-60">
-            <Sparkles size={15} />
-            {categorizing ? 'Categoriseren…' : `${uncategorizedCount} categoriseren met AI`}
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {transactions.some(t => t.original_description) && (
+            <button onClick={simplifyDescriptions} disabled={simplifying || categorizing}
+              className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white text-sm font-medium rounded-xl transition-colors disabled:opacity-60">
+              <Sparkles size={15} />
+              {simplifying ? 'Vereenvoudigen…' : 'Omschrijvingen vereenvoudigen'}
+            </button>
+          )}
+          {uncategorizedCount > 0 && (
+            <button onClick={categorizeAll} disabled={categorizing || simplifying}
+              className="flex items-center gap-2 px-4 py-2 bg-violet-500 hover:bg-violet-600 text-white text-sm font-medium rounded-xl transition-colors disabled:opacity-60">
+              <Sparkles size={15} />
+              {categorizing ? 'Categoriseren…' : `${uncategorizedCount} categoriseren met AI`}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Main tabs */}
