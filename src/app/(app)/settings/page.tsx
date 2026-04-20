@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { LogOut, Plus, Trash2, Search, PiggyBank } from 'lucide-react'
+import { LogOut, Plus, Trash2, Search, PiggyBank, ChevronRight } from 'lucide-react'
 import { AdminCategory, Vendor, Account, AccountBalance } from '@/types'
 import { cn, formatCurrency, CURRENCIES } from '@/lib/utils'
 
@@ -48,7 +48,11 @@ export default function SettingsPage() {
   const [categories, setCategories] = useState<AdminCategory[]>([])
   const [newCatName, setNewCatName] = useState('')
   const [newCatType, setNewCatType] = useState<'expense' | 'income' | 'advance'>('expense')
+  const [newCatParent, setNewCatParent] = useState('')
   const [savingCat, setSavingCat] = useState(false)
+  const [addingSubFor, setAddingSubFor] = useState<string | null>(null)
+  const [newSubName, setNewSubName] = useState('')
+  const [savingSub, setSavingSub] = useState(false)
 
   // Vendors
   const [vendors, setVendors] = useState<Vendor[]>([])
@@ -118,14 +122,32 @@ export default function SettingsPage() {
     setSavingCat(true)
     const res = await fetch('/api/categories', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newCatName.trim(), type: newCatType }),
+      body: JSON.stringify({ name: newCatName.trim(), type: newCatType, parent_id: newCatParent || null }),
     })
     if (res.ok) {
       const { category } = await res.json()
       setCategories(c => [...c, category].sort((a, b) => a.name.localeCompare(b.name)))
       setNewCatName('')
+      setNewCatParent('')
     }
     setSavingCat(false)
+  }
+
+  async function addSubCategory(parentId: string) {
+    if (!newSubName.trim()) return
+    setSavingSub(true)
+    const parent = categories.find(c => c.id === parentId)
+    const res = await fetch('/api/categories', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newSubName.trim(), type: parent?.type ?? 'expense', parent_id: parentId }),
+    })
+    if (res.ok) {
+      const { category } = await res.json()
+      setCategories(c => [...c, category].sort((a, b) => a.name.localeCompare(b.name)))
+      setNewSubName('')
+      setAddingSubFor(null)
+    }
+    setSavingSub(false)
   }
 
   async function deleteCategory(id: string) {
@@ -171,6 +193,8 @@ export default function SettingsPage() {
   const regularAccounts = accounts.filter(a => a.account_type !== 'jar')
   const jars = accounts.filter(a => a.account_type === 'jar')
   const categoryNames = categories.map(c => c.name)
+  const parentCategories = categories.filter(c => !c.parent_id).sort((a, b) => a.name.localeCompare(b.name))
+  const subCats = (parentId: string) => categories.filter(c => c.parent_id === parentId).sort((a, b) => a.name.localeCompare(b.name))
   const filteredVendors = vendors.filter(v =>
     !vendorSearch || v.name.toLowerCase().includes(vendorSearch.toLowerCase()) ||
     v.category?.toLowerCase().includes(vendorSearch.toLowerCase())
@@ -302,28 +326,70 @@ export default function SettingsPage() {
           )}
         </div>
         <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-          {categories.length > 0 && (
-            <div>
-              {categories.map((cat, i) => (
-                <div key={cat.id} className={cn('flex items-center justify-between px-4 py-3', i < categories.length - 1 && 'border-b border-slate-50')}>
-                  <span className="text-sm font-medium text-slate-900">{cat.name}</span>
-                  <div className="flex items-center gap-3">
+          {(() => {
+            const parents = categories.filter(c => !c.parent_id).sort((a, b) => a.name.localeCompare(b.name))
+            const subs = (parentId: string) => categories.filter(c => c.parent_id === parentId).sort((a, b) => a.name.localeCompare(b.name))
+            return parents.map((cat, i) => (
+              <div key={cat.id} className={cn(i < parents.length - 1 && 'border-b border-slate-100')}>
+                {/* Parent row */}
+                <div className="flex items-center justify-between px-4 py-3">
+                  <span className="text-sm font-semibold text-slate-900">{cat.name}</span>
+                  <div className="flex items-center gap-2">
                     <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full',
                       cat.type === 'income' ? 'bg-emerald-100 text-emerald-700' :
                       cat.type === 'advance' ? 'bg-amber-100 text-amber-700' :
                       'bg-red-100 text-red-600')}>
                       {cat.type === 'income' ? 'Inkomsten' : cat.type === 'advance' ? 'Voorschot' : 'Uitgaven'}
                     </span>
+                    <button
+                      onClick={() => { setAddingSubFor(addingSubFor === cat.id ? null : cat.id); setNewSubName('') }}
+                      className="text-slate-300 hover:text-indigo-500 transition-colors p-1" title="Subcategorie toevoegen">
+                      <Plus size={14} />
+                    </button>
                     <button onClick={() => deleteCategory(cat.id)} className="text-slate-300 hover:text-red-400 transition-colors p-1">
                       <Trash2 size={14} />
                     </button>
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
+
+                {/* Subcategories */}
+                {subs(cat.id).map(sub => (
+                  <div key={sub.id} className="flex items-center justify-between pl-9 pr-4 py-2 border-t border-slate-50 bg-slate-50/50">
+                    <div className="flex items-center gap-1.5 text-slate-600">
+                      <ChevronRight size={12} className="text-slate-300 shrink-0" />
+                      <span className="text-sm">{sub.name}</span>
+                    </div>
+                    <button onClick={() => deleteCategory(sub.id)} className="text-slate-300 hover:text-red-400 transition-colors p-1">
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                ))}
+
+                {/* Inline add subcategory */}
+                {addingSubFor === cat.id && (
+                  <div className="flex gap-2 pl-9 pr-4 py-2 border-t border-indigo-100 bg-indigo-50/40">
+                    <input
+                      autoFocus
+                      type="text"
+                      placeholder="Naam subcategorie…"
+                      value={newSubName}
+                      onChange={e => setNewSubName(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && addSubCategory(cat.id)}
+                      className="flex-1 px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400"
+                    />
+                    <button onClick={() => addSubCategory(cat.id)} disabled={!newSubName.trim() || savingSub}
+                      className="px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm transition-colors disabled:opacity-50">
+                      <Plus size={14} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))
+          })()}
+
+          {/* Add top-level category */}
           <div className={cn('flex gap-2 px-4 py-3', categories.length > 0 && 'border-t border-slate-100')}>
-            <input type="text" placeholder="Naam categorie…" value={newCatName}
+            <input type="text" placeholder="Nieuwe hoofdcategorie…" value={newCatName}
               onChange={e => setNewCatName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && addCategory()}
               className="flex-1 px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
@@ -385,7 +451,17 @@ export default function SettingsPage() {
             <select value={newVendorCategory} onChange={e => setNewVendorCategory(e.target.value)}
               className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
               <option value="">Categorie…</option>
-              {categoryNames.map(c => <option key={c} value={c}>{c}</option>)}
+              {parentCategories.map(p => {
+                const subs = subCats(p.id)
+                return subs.length > 0 ? (
+                  <optgroup key={p.id} label={p.name}>
+                    <option value={p.name}>{p.name}</option>
+                    {subs.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                  </optgroup>
+                ) : (
+                  <option key={p.id} value={p.name}>{p.name}</option>
+                )
+              })}
             </select>
             <button onClick={addVendor} disabled={!newVendorName.trim() || savingVendor}
               className="px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm transition-colors disabled:opacity-50">

@@ -308,7 +308,16 @@ export default function AdministratiePage() {
   const categoryNames = categories.map(c => c.name)
   const vendorNames = vendors.map(v => v.name)
 
-  const dropdownOptions: string[] = cellDropdown?.field === 'vendor' ? vendorNames : categoryNames
+  // Grouped categories: top-level parents with their subcategories
+  const parentCategories = categories.filter(c => !c.parent_id).sort((a, b) => a.name.localeCompare(b.name))
+  const subCategories = (parentId: string) => categories.filter(c => c.parent_id === parentId).sort((a, b) => a.name.localeCompare(b.name))
+  // Flat list for the inline cell dropdown (includes all, subcategories shown as "Parent > Sub")
+  const allCategoryOptions = parentCategories.flatMap(p => [
+    p.name,
+    ...subCategories(p.id).map(s => s.name),
+  ])
+
+  const dropdownOptions: string[] = cellDropdown?.field === 'vendor' ? vendorNames : allCategoryOptions
   const filteredDropdownOptions = dropdownOptions.filter(o =>
     !cellSearch || o.toLowerCase().includes(cellSearch.toLowerCase())
   )
@@ -802,7 +811,17 @@ export default function AdministratiePage() {
                 <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)}
                   className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
                   <option value="">Alle categorieën</option>
-                  {categoryNames.map(c => <option key={c}>{c}</option>)}
+                  {parentCategories.map(p => {
+                    const subs = subCategories(p.id)
+                    return subs.length > 0 ? (
+                      <optgroup key={p.id} label={p.name}>
+                        <option value={p.name}>{p.name}</option>
+                        {subs.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                      </optgroup>
+                    ) : (
+                      <option key={p.id} value={p.name}>{p.name}</option>
+                    )
+                  })}
                 </select>
                 <div className="relative ml-auto">
                   <ArrowUpDown size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -1451,7 +1470,17 @@ export default function AdministratiePage() {
                     className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white"
                   >
                     <option value="">— geen —</option>
-                    {categoryNames.map(c => <option key={c} value={c}>{c}</option>)}
+                    {parentCategories.map(p => {
+                      const subs = subCategories(p.id)
+                      return subs.length > 0 ? (
+                        <optgroup key={p.id} label={p.name}>
+                          <option value={p.name}>{p.name}</option>
+                          {subs.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                        </optgroup>
+                      ) : (
+                        <option key={p.id} value={p.name}>{p.name}</option>
+                      )
+                    })}
                   </select>
                 </div>
               </div>

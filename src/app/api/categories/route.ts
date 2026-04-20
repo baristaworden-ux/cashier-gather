@@ -21,12 +21,12 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { name, type } = await req.json()
+  const { name, type, parent_id } = await req.json()
   if (!name || !type) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
 
   const { data, error } = await supabase
     .from('admin_categories')
-    .insert({ user_id: user.id, name: name.trim(), type })
+    .insert({ user_id: user.id, name: name.trim(), type, parent_id: parent_id || null })
     .select()
     .single()
 

@@ -71,6 +71,7 @@ export interface AdminCategory {
   user_id: string
   name: string
   type: 'expense' | 'income' | 'advance'
+  parent_id?: string | null
   created_at: string
 }
 
