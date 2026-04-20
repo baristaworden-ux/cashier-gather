@@ -331,6 +331,17 @@ export default function AdministratiePage() {
     ...subCategories(p.id).map(s => s.name),
   ])
 
+  const TYPE_LABELS: Record<string, string> = {
+    expense: 'uitgaven', income: 'inkomen', investment: 'investering', advance: 'voorschot', transfer: 'overboeking',
+  }
+  function catTypeLabel(name: string) {
+    const cat = categories.find(c => c.name === name)
+    if (!cat) return null
+    // For subcategories, use parent's type
+    const type = cat.parent_id ? (categories.find(p => p.id === cat.parent_id)?.type ?? cat.type) : cat.type
+    return TYPE_LABELS[type] ?? null
+  }
+
   const dropdownOptions: string[] = cellDropdown?.field === 'vendor' ? vendorNames : allCategoryOptions
   const filteredDropdownOptions = dropdownOptions.filter(o =>
     !cellSearch || o.toLowerCase().includes(cellSearch.toLowerCase())
@@ -1234,15 +1245,21 @@ export default function AdministratiePage() {
                     )}
                     {filteredDropdownOptions.length === 0 ? (
                       <p className="text-xs text-slate-400 italic px-3 py-3">Geen resultaten.</p>
-                    ) : filteredDropdownOptions.map(opt => (
-                      <button
-                        key={opt}
-                        onClick={() => updateCellValue(cellDropdown.txId, cellDropdown.field, opt)}
-                        className="w-full text-left px-3 py-2 text-sm text-slate-800 hover:bg-indigo-50 hover:text-indigo-700 transition-colors"
-                      >
-                        {opt}
-                      </button>
-                    ))}
+                    ) : filteredDropdownOptions.map(opt => {
+                      const typeLabel = cellDropdown.field === 'category' ? catTypeLabel(opt) : null
+                      const isChild = cellDropdown.field === 'category' && !!categories.find(c => c.name === opt)?.parent_id
+                      return (
+                        <button
+                          key={opt}
+                          onClick={() => updateCellValue(cellDropdown.txId, cellDropdown.field, opt)}
+                          className={cn('w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 hover:text-indigo-700 transition-colors flex items-center justify-between gap-2',
+                            isChild ? 'pl-5' : '')}
+                        >
+                          <span className="text-slate-800">{isChild && <span className="text-slate-300 mr-1">›</span>}{opt}</span>
+                          {typeLabel && <span className="text-xs text-slate-400 shrink-0">{typeLabel}</span>}
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
               )}
@@ -1554,12 +1571,16 @@ export default function AdministratiePage() {
                           {allCategoryOptions
                             .filter(c => !detailCategorySearch || c.toLowerCase().includes(detailCategorySearch.toLowerCase()))
                             .map(c => {
-                              const isChild = categories.find(cat => cat.name === c)?.parent_id
+                              const isChild = !!categories.find(cat => cat.name === c)?.parent_id
+                              const typeLabel = catTypeLabel(c)
                               return (
                                 <button key={c} onClick={() => { setDetailEdits(d => ({ ...d, category: c })); setDetailCategoryOpen(false) }}
-                                  className={cn('w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 hover:text-indigo-700 transition-colors',
-                                    isChild ? 'pl-6 text-slate-600' : 'text-slate-800 font-medium')}>
-                                  {isChild && <span className="text-slate-300 mr-1">›</span>}{c}
+                                  className={cn('w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 hover:text-indigo-700 transition-colors flex items-center justify-between gap-2',
+                                    isChild ? 'pl-6' : '')}>
+                                  <span className={isChild ? 'text-slate-600' : 'text-slate-800 font-medium'}>
+                                    {isChild && <span className="text-slate-300 mr-1">›</span>}{c}
+                                  </span>
+                                  {typeLabel && <span className="text-xs text-slate-400 shrink-0">{typeLabel}</span>}
                                 </button>
                               )
                             })}
