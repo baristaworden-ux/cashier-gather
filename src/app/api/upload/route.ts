@@ -95,13 +95,6 @@ export async function POST(req: NextRequest) {
 
     if (parsed.length === 0) return NextResponse.json({ error: 'Geen transacties gevonden in het bestand.' }, { status: 422 })
 
-    const { data: existing } = await supabase
-      .from('admin_transactions')
-      .select('import_hash')
-      .eq('account_id', account_id)
-
-    const existingHashes = new Set((existing || []).map((r: { import_hash: string }) => r.import_hash))
-
     const { data: vendorData } = await supabase
       .from('admin_vendors')
       .select('name, category')
@@ -116,31 +109,68 @@ export async function POST(req: NextRequest) {
       return null
     }
 
-    const toInsert = parsed
-      .filter(t => !existingHashes.has(t.import_hash))
-      .map(t => {
-        const match = matchVendor(t.description)
-        return {
-          ...t,
-          account_id,
-          user_id: user.id,
-          original_description: t.description,
-          source: bank,
-          vendor: match?.vendor ?? undefined,
-          category: match?.category ?? undefined,
-          ai_categorized: false,
-          status: 'draft',
-        }
-      })
-
-    const skipped = parsed.length - toInsert.length
-
-    if (toInsert.length > 0) {
-      const { error } = await supabase.from('admin_transactions').insert(toInsert)
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    // For PDF uploads: auto-route transactions to matching accounts/jars by currency.
+    // Load all user accounts for this bank and build a currency → account_id map.
+    const currencyToAccount: Record<string, string> = { [currency]: account_id }
+    if (isPdf) {
+      const { data: allAccounts } = await supabase
+        .from('admin_accounts')
+        .select('id, currency')
+        .eq('user_id', user.id)
+        .eq('bank', bank)
+      for (const acc of allAccounts || []) {
+        if (acc.currency) currencyToAccount[acc.currency] = acc.id
+      }
     }
 
-    return NextResponse.json({ imported: toInsert.length, skipped, bank })
+    // Group parsed transactions by their target account
+    const byAccount: Record<string, typeof parsed> = {}
+    for (const tx of parsed) {
+      const targetId = currencyToAccount[tx.currency] ?? account_id
+      if (!byAccount[targetId]) byAccount[targetId] = []
+      byAccount[targetId].push(tx)
+    }
+
+    let totalImported = 0
+    let totalSkipped = 0
+    const routedTo: Record<string, string> = {} // currency → account_id, for response info
+
+    for (const [targetAccountId, txs] of Object.entries(byAccount)) {
+      const { data: existing } = await supabase
+        .from('admin_transactions')
+        .select('import_hash')
+        .eq('account_id', targetAccountId)
+
+      const existingHashes = new Set((existing || []).map((r: { import_hash: string }) => r.import_hash))
+
+      const toInsert = txs
+        .filter(t => !existingHashes.has(t.import_hash))
+        .map(t => {
+          const match = matchVendor(t.description)
+          routedTo[t.currency] = targetAccountId
+          return {
+            ...t,
+            account_id: targetAccountId,
+            user_id: user.id,
+            original_description: t.description,
+            source: bank,
+            vendor: match?.vendor ?? undefined,
+            category: match?.category ?? undefined,
+            ai_categorized: false,
+            status: 'draft',
+          }
+        })
+
+      totalSkipped += txs.length - toInsert.length
+
+      if (toInsert.length > 0) {
+        const { error } = await supabase.from('admin_transactions').insert(toInsert)
+        if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+        totalImported += toInsert.length
+      }
+    }
+
+    return NextResponse.json({ imported: totalImported, skipped: totalSkipped, bank, routed: routedTo })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Onbekende fout'
     return NextResponse.json({ error: `Serverfout: ${msg}` }, { status: 500 })

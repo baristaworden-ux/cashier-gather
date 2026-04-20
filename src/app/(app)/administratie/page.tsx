@@ -82,7 +82,7 @@ export default function AdministratiePage() {
   const [uploadCurrency, setUploadCurrency] = useState('EUR')
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
-  const [uploadResult, setUploadResult] = useState<{ imported: number; skipped: number } | null>(null)
+  const [uploadResult, setUploadResult] = useState<{ imported: number; skipped: number; routed?: Record<string, string> } | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
 
   // Transfer
@@ -1314,9 +1314,15 @@ export default function AdministratiePage() {
                   </div>
                 )}
                 {uploadResult && (
-                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-sm text-emerald-700">
-                    ✓ <strong>{uploadResult.imported}</strong> transacties geïmporteerd
-                    {uploadResult.skipped > 0 && `, ${uploadResult.skipped} duplicaten overgeslagen`}
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-sm text-emerald-700 space-y-1">
+                    <p>✓ <strong>{uploadResult.imported}</strong> transacties geïmporteerd{uploadResult.skipped > 0 && `, ${uploadResult.skipped} duplicaten overgeslagen`}</p>
+                    {uploadResult.routed && Object.keys(uploadResult.routed).length > 1 && (
+                      <div className="text-xs text-emerald-600 space-y-0.5 pt-0.5">
+                        {Object.entries(uploadResult.routed).map(([cur, accId]) => (
+                          <p key={cur}>· {cur} → {accountMap[accId]?.name ?? accId}</p>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
                 {uploadError && <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">✗ {uploadError}</div>}
