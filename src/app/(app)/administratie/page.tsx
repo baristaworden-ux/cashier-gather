@@ -596,10 +596,10 @@ export default function AdministratiePage() {
     .reduce((acc, b) => { acc[b.currency] = (acc[b.currency] || 0) + b.balance; return acc }, {} as Record<string, number>)
 
   const advanceCategoryNames = new Set(categories.filter(c => c.type === 'advance').map(c => c.name))
-  const spendingByCategory = transactions.filter(t => t.type === 'expense' && t.category && !advanceCategoryNames.has(t.category))
+  const spendingByCategory = transactions.filter(t => (t.type === 'expense' || t.type === 'investment') && t.category && !advanceCategoryNames.has(t.category))
     .reduce((acc, t) => { acc[t.category!] = (acc[t.category!] || 0) + t.amount; return acc }, {} as Record<string, number>)
   const topCategories = Object.entries(spendingByCategory).sort((a, b) => b[1] - a[1]).slice(0, 8)
-  const totalExpenses = transactions.filter(t => t.type === 'expense' && !advanceCategoryNames.has(t.category ?? '')).reduce((s, t) => s + t.amount, 0)
+  const totalExpenses = transactions.filter(t => (t.type === 'expense' || t.type === 'investment') && !advanceCategoryNames.has(t.category ?? '')).reduce((s, t) => s + t.amount, 0)
 
   const draftCount = transactions.filter(t => t.status === 'draft').length
 
@@ -816,6 +816,7 @@ export default function AdministratiePage() {
                   <option value="income">Inkomsten</option>
                   <option value="expense">Uitgaven</option>
                   <option value="transfer">Overboekingen</option>
+                  <option value="investment">Investeringen</option>
                 </select>
                 <select value={filterVendor} onChange={e => setFilterVendor(e.target.value)}
                   className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
@@ -993,8 +994,8 @@ export default function AdministratiePage() {
                                 </td>
 
                                 <td className={cn('px-4 py-2.5 text-right font-semibold whitespace-nowrap text-sm',
-                                  tx.type === 'income' ? 'text-emerald-600' : tx.type === 'expense' ? 'text-red-500' : 'text-slate-500')}>
-                                  {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : ''}
+                                  tx.type === 'income' ? 'text-emerald-600' : tx.type === 'expense' ? 'text-red-500' : tx.type === 'investment' ? 'text-blue-600' : 'text-slate-500')}>
+                                  {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : tx.type === 'investment' ? '↗' : ''}
                                   {formatCurrency(tx.amount, tx.currency)}
                                 </td>
                                 <td className="px-2 py-2.5">
@@ -1042,8 +1043,8 @@ export default function AdministratiePage() {
                                               className="flex items-center gap-2 text-xs bg-white border border-indigo-200 hover:bg-indigo-100 text-slate-700 px-3 py-1.5 rounded-lg transition-colors">
                                               <span className="font-medium">{formatDate(c.date)}</span>
                                               <span className="text-slate-400">{accountMap[c.account_id]?.name ?? '—'}</span>
-                                              <span className={cn('font-semibold', c.type === 'income' ? 'text-emerald-600' : 'text-red-500')}>
-                                                {c.type === 'income' ? '+' : '-'}{formatCurrency(c.amount, c.currency)}
+                                              <span className={cn('font-semibold', c.type === 'income' ? 'text-emerald-600' : c.type === 'investment' ? 'text-blue-600' : 'text-red-500')}>
+                                                {c.type === 'income' ? '+' : c.type === 'investment' ? '↗' : '-'}{formatCurrency(c.amount, c.currency)}
                                               </span>
                                             </button>
                                           ))}
@@ -1405,8 +1406,9 @@ export default function AdministratiePage() {
             <div className="flex items-start justify-between p-6 border-b border-slate-100">
               <div>
                 <p className="text-xs text-slate-400 mb-1">{formatDate(detailEdits.date ?? detailTx.date)} · {accountMap[detailTx.account_id]?.name ?? '—'} · {detailTx.currency}</p>
-                <p className={cn('text-2xl font-bold', detailTx.type === 'income' ? 'text-emerald-600' : 'text-red-500')}>
-                  {detailTx.type === 'income' ? '+' : '-'}{formatCurrency(detailTx.amount, detailTx.currency)}
+                <p className={cn('text-2xl font-bold',
+                  detailTx.type === 'income' ? 'text-emerald-600' : detailTx.type === 'investment' ? 'text-blue-600' : detailTx.type === 'expense' ? 'text-red-500' : 'text-slate-500')}>
+                  {detailTx.type === 'income' ? '+' : detailTx.type === 'investment' ? '↗' : detailTx.type === 'expense' ? '-' : ''}{formatCurrency(detailTx.amount, detailTx.currency)}
                 </p>
               </div>
               <button onClick={() => setDetailTx(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
@@ -1456,6 +1458,7 @@ export default function AdministratiePage() {
                     <option value="expense">Uitgave</option>
                     <option value="income">Inkomsten</option>
                     <option value="transfer">Overboeking</option>
+                    <option value="investment">Investering</option>
                   </select>
                 </div>
               </div>
@@ -1595,7 +1598,7 @@ export default function AdministratiePage() {
                           <Link2 size={13} className="text-indigo-500 shrink-0" />
                           <div className="min-w-0">
                             <p className="text-xs font-medium text-indigo-700 truncate">{linked.description}</p>
-                            <p className="text-xs text-indigo-400">{accountMap[linked.account_id]?.name ?? '—'} · {formatDate(linked.date)} · {linked.type === 'income' ? '+' : '-'}{formatCurrency(linked.amount, linked.currency)}</p>
+                            <p className="text-xs text-indigo-400">{accountMap[linked.account_id]?.name ?? '—'} · {formatDate(linked.date)} · {linked.type === 'income' ? '+' : linked.type === 'investment' ? '↗' : '-'}{formatCurrency(linked.amount, linked.currency)}</p>
                           </div>
                         </div>
                         <button
@@ -1610,7 +1613,7 @@ export default function AdministratiePage() {
                           <Sparkles size={13} className="text-amber-500 shrink-0" />
                           <div className="min-w-0">
                             <p className="text-xs font-medium text-amber-700 truncate">{aiMatchTx.description}</p>
-                            <p className="text-xs text-amber-500">{accountMap[aiMatchTx.account_id]?.name ?? '—'} · {formatDate(aiMatchTx.date)} · {aiMatchTx.type === 'income' ? '+' : '-'}{formatCurrency(aiMatchTx.amount, aiMatchTx.currency)}</p>
+                            <p className="text-xs text-amber-500">{accountMap[aiMatchTx.account_id]?.name ?? '—'} · {formatDate(aiMatchTx.date)} · {aiMatchTx.type === 'income' ? '+' : aiMatchTx.type === 'investment' ? '↗' : '-'}{formatCurrency(aiMatchTx.amount, aiMatchTx.currency)}</p>
                           </div>
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0 ml-2">
@@ -1676,8 +1679,8 @@ export default function AdministratiePage() {
                                     <span className="font-medium text-slate-700 block truncate max-w-[220px]">{t.description}</span>
                                     <span className="text-slate-400">{formatDate(t.date)} · {accountMap[t.account_id]?.name ?? '—'}</span>
                                   </div>
-                                  <span className={cn('font-semibold ml-2 shrink-0', t.type === 'income' ? 'text-emerald-600' : 'text-red-500')}>
-                                    {t.type === 'income' ? '+' : '-'}{formatCurrency(t.amount, t.currency)}
+                                  <span className={cn('font-semibold ml-2 shrink-0', t.type === 'income' ? 'text-emerald-600' : t.type === 'investment' ? 'text-blue-600' : 'text-red-500')}>
+                                    {t.type === 'income' ? '+' : t.type === 'investment' ? '↗' : '-'}{formatCurrency(t.amount, t.currency)}
                                   </span>
                                 </button>
                               ))

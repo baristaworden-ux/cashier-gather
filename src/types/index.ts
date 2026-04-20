@@ -1,4 +1,4 @@
-export type TransactionType = 'income' | 'expense' | 'transfer'
+export type TransactionType = 'income' | 'expense' | 'transfer' | 'investment'
 export type TransactionStatus = 'draft' | 'processed'
 export type BankSource = 'rabobank' | 'wise' | 'revolut' | 'ocbc' | 'manual'
 export type AccountType = 'account' | 'jar'
@@ -70,7 +70,7 @@ export interface AdminCategory {
   id: string
   user_id: string
   name: string
-  type: 'expense' | 'income' | 'advance'
+  type: 'expense' | 'income' | 'advance' | 'investment'
   parent_id?: string | null
   created_at: string
 }
