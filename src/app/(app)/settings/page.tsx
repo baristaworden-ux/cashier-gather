@@ -53,6 +53,7 @@ export default function SettingsPage() {
   const [addingSubFor, setAddingSubFor] = useState<string | null>(null)
   const [newSubName, setNewSubName] = useState('')
   const [savingSub, setSavingSub] = useState(false)
+  const [subError, setSubError] = useState<string | null>(null)
 
   // Vendors
   const [vendors, setVendors] = useState<Vendor[]>([])
@@ -136,6 +137,7 @@ export default function SettingsPage() {
   async function addSubCategory(parentId: string) {
     if (!newSubName.trim()) return
     setSavingSub(true)
+    setSubError(null)
     const parent = categories.find(c => c.id === parentId)
     const res = await fetch('/api/categories', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -146,6 +148,9 @@ export default function SettingsPage() {
       setCategories(c => [...c, category].sort((a, b) => a.name.localeCompare(b.name)))
       setNewSubName('')
       setAddingSubFor(null)
+    } else {
+      const d = await res.json().catch(() => ({}))
+      setSubError(d.error || 'Opslaan mislukt. Controleer of de SQL-migratie is uitgevoerd in Supabase.')
     }
     setSavingSub(false)
   }
@@ -366,20 +371,25 @@ export default function SettingsPage() {
 
                 {/* Inline add subcategory */}
                 {addingSubFor === cat.id && (
-                  <div className="flex gap-2 pl-9 pr-4 py-2 border-t border-indigo-100 bg-indigo-50/40">
-                    <input
-                      autoFocus
-                      type="text"
-                      placeholder="Naam subcategorie…"
-                      value={newSubName}
-                      onChange={e => setNewSubName(e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && addSubCategory(cat.id)}
-                      className="flex-1 px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400"
-                    />
-                    <button onClick={() => addSubCategory(cat.id)} disabled={!newSubName.trim() || savingSub}
-                      className="px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm transition-colors disabled:opacity-50">
-                      <Plus size={14} />
-                    </button>
+                  <div className="border-t border-indigo-100 bg-indigo-50/40">
+                    <div className="flex gap-2 pl-9 pr-4 py-2">
+                      <input
+                        autoFocus
+                        type="text"
+                        placeholder="Naam subcategorie…"
+                        value={newSubName}
+                        onChange={e => { setNewSubName(e.target.value); setSubError(null) }}
+                        onKeyDown={e => e.key === 'Enter' && addSubCategory(cat.id)}
+                        className="flex-1 px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400"
+                      />
+                      <button onClick={() => addSubCategory(cat.id)} disabled={!newSubName.trim() || savingSub}
+                        className="px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm transition-colors disabled:opacity-50">
+                        {savingSub ? '…' : <Plus size={14} />}
+                      </button>
+                    </div>
+                    {subError && (
+                      <p className="pl-9 pr-4 pb-2 text-xs text-red-500">{subError}</p>
+                    )}
                   </div>
                 )}
               </div>
