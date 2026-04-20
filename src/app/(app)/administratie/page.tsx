@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { Account, AccountBalance, Transaction, TransactionType, Vendor, AdminCategory } from '@/types'
 import { formatCurrency, formatDate, cn, CURRENCIES } from '@/lib/utils'
@@ -28,6 +28,10 @@ interface CellDropdown {
 }
 
 export default function AdministratiePage() {
+  return <Suspense fallback={<div className="text-sm text-slate-400 py-16 text-center">Laden…</div>}><AdministratieInner /></Suspense>
+}
+
+function AdministratieInner() {
   const searchParams = useSearchParams()
   const tab = (searchParams.get('tab') || 'overzicht') as Tab
   const [accounts, setAccounts] = useState<Account[]>([])
