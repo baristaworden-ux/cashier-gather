@@ -320,7 +320,6 @@ export default function AdministratiePage() {
     setDetailTx(null)
   }
 
-  const categoryNames = categories.map(c => c.name)
   const vendorNames = vendors.map(v => v.name)
 
   // Grouped categories: top-level parents with their subcategories

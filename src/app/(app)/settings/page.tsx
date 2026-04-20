@@ -192,7 +192,6 @@ export default function SettingsPage() {
   // ── Derived ──
   const regularAccounts = accounts.filter(a => a.account_type !== 'jar')
   const jars = accounts.filter(a => a.account_type === 'jar')
-  const categoryNames = categories.map(c => c.name)
   const parentCategories = categories.filter(c => !c.parent_id).sort((a, b) => a.name.localeCompare(b.name))
   const subCats = (parentId: string) => categories.filter(c => c.parent_id === parentId).sort((a, b) => a.name.localeCompare(b.name))
   const filteredVendors = vendors.filter(v =>
