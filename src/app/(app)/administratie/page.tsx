@@ -14,8 +14,9 @@ const BANK_COLORS: Record<string, string> = {
   ocbc: 'bg-red-500', manual: 'bg-slate-400',
 }
 
-type Tab = 'overzicht' | 'transacties' | 'uploaden' | 'overboeking'
+type Tab = 'overzicht' | 'transacties' | 'uploaden' | 'overboeking' | 'rapport'
 type SortKey = 'date_desc' | 'date_asc' | 'amount_desc' | 'amount_asc'
+type ReportSort = 'category_asc' | 'category_desc' | 'income_desc' | 'income_asc' | 'expense_desc' | 'expense_asc'
 
 interface CellDropdown {
   txId: string
@@ -94,6 +95,17 @@ export default function AdministratiePage() {
   })
   const [transferring, setTransferring] = useState(false)
   const [transferResult, setTransferResult] = useState<{ exchange_rate: number; from: string; to: string } | null>(null)
+
+  // Report
+  const [reportFrom, setReportFrom] = useState(() => {
+    const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+  })
+  const [reportTo, setReportTo] = useState(() => new Date().toISOString().slice(0, 10))
+  const [reportCurrency, setReportCurrency] = useState('EUR')
+  const [reportSort, setReportSort] = useState<ReportSort>('expense_desc')
+  const [reportCompare, setReportCompare] = useState(false)
+  const [reportCmpFrom, setReportCmpFrom] = useState('')
+  const [reportCmpTo, setReportCmpTo] = useState('')
 
 
   async function findAutoMatches(txList: Transaction[]): Promise<Record<string, string>> {
@@ -618,6 +630,78 @@ export default function AdministratiePage() {
 
   const draftCount = transactions.filter(t => t.status === 'draft').length
 
+  // ── Report derived ────────────────────────────────────────────────────────
+  const reportTxs = transactions.filter(t =>
+    t.status === 'processed' &&
+    t.date >= reportFrom && t.date <= reportTo &&
+    t.currency === reportCurrency
+  )
+  const reportCmpTxs = (reportCompare && reportCmpFrom && reportCmpTo)
+    ? transactions.filter(t =>
+        t.status === 'processed' &&
+        t.date >= reportCmpFrom && t.date <= reportCmpTo &&
+        t.currency === reportCurrency
+      )
+    : []
+
+  function buildReportRows(txs: Transaction[]) {
+    const byCategory: Record<string, { income: number; expense: number }> = {}
+    for (const t of txs) {
+      const cat = t.category || 'Zonder categorie'
+      if (!byCategory[cat]) byCategory[cat] = { income: 0, expense: 0 }
+      if (t.type === 'income') byCategory[cat].income += t.amount
+      else if (t.type === 'expense' || t.type === 'investment') byCategory[cat].expense += t.amount
+    }
+    return byCategory
+  }
+
+  const reportMain = buildReportRows(reportTxs)
+  const reportCmp = buildReportRows(reportCmpTxs)
+  const allReportCats = Array.from(new Set([...Object.keys(reportMain), ...Object.keys(reportCmp)]))
+
+  const reportRows = allReportCats.map(cat => ({
+    cat,
+    income: reportMain[cat]?.income ?? 0,
+    expense: reportMain[cat]?.expense ?? 0,
+    cmpIncome: reportCmp[cat]?.income ?? 0,
+    cmpExpense: reportCmp[cat]?.expense ?? 0,
+  })).sort((a, b) => {
+    switch (reportSort) {
+      case 'category_asc':  return a.cat.localeCompare(b.cat)
+      case 'category_desc': return b.cat.localeCompare(a.cat)
+      case 'income_desc':   return b.income - a.income
+      case 'income_asc':    return a.income - b.income
+      case 'expense_desc':  return b.expense - a.expense
+      case 'expense_asc':   return a.expense - b.expense
+    }
+  })
+
+  const reportTotalIncome  = reportRows.reduce((s, r) => s + r.income, 0)
+  const reportTotalExpense = reportRows.reduce((s, r) => s + r.expense, 0)
+  const reportCmpTotalIncome  = reportRows.reduce((s, r) => s + r.cmpIncome, 0)
+  const reportCmpTotalExpense = reportRows.reduce((s, r) => s + r.cmpExpense, 0)
+
+  function setReportPreset(preset: 'this_month' | 'last_month' | 'this_quarter' | 'this_year') {
+    const now = new Date()
+    const y = now.getFullYear(), m = now.getMonth()
+    if (preset === 'this_month') {
+      setReportFrom(`${y}-${String(m + 1).padStart(2, '0')}-01`)
+      setReportTo(now.toISOString().slice(0, 10))
+    } else if (preset === 'last_month') {
+      const lm = m === 0 ? 12 : m, ly = m === 0 ? y - 1 : y
+      const lastDay = new Date(ly, lm, 0).getDate()
+      setReportFrom(`${ly}-${String(lm).padStart(2, '0')}-01`)
+      setReportTo(`${ly}-${String(lm).padStart(2, '0')}-${lastDay}`)
+    } else if (preset === 'this_quarter') {
+      const qStart = Math.floor(m / 3) * 3
+      setReportFrom(`${y}-${String(qStart + 1).padStart(2, '0')}-01`)
+      setReportTo(now.toISOString().slice(0, 10))
+    } else if (preset === 'this_year') {
+      setReportFrom(`${y}-01-01`)
+      setReportTo(now.toISOString().slice(0, 10))
+    }
+  }
+
   const filtered = transactions.filter(t => {
     if ((t.status || 'processed') !== txTab) return false
     if (filterAccount && t.account_id !== filterAccount) return false
@@ -640,6 +724,7 @@ export default function AdministratiePage() {
     { key: 'transacties', label: 'Transacties' },
     { key: 'uploaden', label: 'Uploaden' },
     { key: 'overboeking', label: 'Overboeking' },
+    { key: 'rapport', label: 'Rapport' },
   ]
 
   const CATEGORY_COLORS: Record<string, string> = {
@@ -1456,6 +1541,205 @@ export default function AdministratiePage() {
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* ── RAPPORT ── */}
+          {tab === 'rapport' && (
+            <div className="space-y-6">
+              {/* Period controls */}
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <h2 className="text-sm font-semibold text-slate-900">Periode</h2>
+                  <div className="flex items-center gap-1.5">
+                    {(['this_month', 'last_month', 'this_quarter', 'this_year'] as const).map(p => (
+                      <button key={p} onClick={() => setReportPreset(p)}
+                        className="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors">
+                        {p === 'this_month' ? 'Deze maand' : p === 'last_month' ? 'Vorige maand' : p === 'this_quarter' ? 'Dit kwartaal' : 'Dit jaar'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-3 items-end">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-slate-500">Van</label>
+                    <input type="date" value={reportFrom} onChange={e => setReportFrom(e.target.value)}
+                      className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-slate-500">Tot</label>
+                    <input type="date" value={reportTo} onChange={e => setReportTo(e.target.value)}
+                      className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-slate-500">Valuta</label>
+                    <select value={reportCurrency} onChange={e => setReportCurrency(e.target.value)}
+                      className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
+                      {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <button onClick={() => {
+                    setReportCompare(v => !v)
+                    if (!reportCompare && !reportCmpFrom) {
+                      const d = new Date(reportFrom)
+                      d.setMonth(d.getMonth() - 1)
+                      const lm = d.getMonth() + 1, ly = d.getFullYear()
+                      const lastDay = new Date(ly, lm, 0).getDate()
+                      setReportCmpFrom(`${ly}-${String(lm).padStart(2, '0')}-01`)
+                      setReportCmpTo(`${ly}-${String(lm).padStart(2, '0')}-${lastDay}`)
+                    }
+                  }}
+                    className={cn('px-3 py-1.5 text-sm rounded-lg border transition-colors font-medium',
+                      reportCompare ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'border-slate-200 text-slate-600 hover:border-slate-300')}>
+                    Vergelijk
+                  </button>
+                </div>
+                {reportCompare && (
+                  <div className="flex flex-wrap gap-3 items-end pt-2 border-t border-slate-100">
+                    <p className="text-xs text-slate-500 font-medium self-center w-full">Vergelijkingsperiode</p>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-slate-500">Van</label>
+                      <input type="date" value={reportCmpFrom} onChange={e => setReportCmpFrom(e.target.value)}
+                        className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-slate-500">Tot</label>
+                      <input type="date" value={reportCmpTo} onChange={e => setReportCmpTo(e.target.value)}
+                        className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Summary cards */}
+              <div className={cn('grid gap-3', reportCompare ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2')}>
+                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4">
+                  <p className="text-xs text-emerald-600 font-medium mb-1">Inkomen</p>
+                  <p className="text-xl font-bold text-emerald-700">{formatCurrency(reportTotalIncome, reportCurrency)}</p>
+                  {reportCompare && <p className="text-xs text-emerald-500 mt-0.5">{reportRows.filter(r => r.income > 0).length} categorieën</p>}
+                </div>
+                <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
+                  <p className="text-xs text-red-500 font-medium mb-1">Uitgaven</p>
+                  <p className="text-xl font-bold text-red-600">{formatCurrency(reportTotalExpense, reportCurrency)}</p>
+                  {reportCompare && <p className="text-xs text-red-400 mt-0.5">{reportRows.filter(r => r.expense > 0).length} categorieën</p>}
+                </div>
+                {reportCompare && (
+                  <>
+                    <div className="bg-emerald-50/60 border border-emerald-200 rounded-2xl p-4 opacity-70">
+                      <p className="text-xs text-emerald-600 font-medium mb-1">Inkomen (vgl.)</p>
+                      <p className="text-xl font-bold text-emerald-700">{formatCurrency(reportCmpTotalIncome, reportCurrency)}</p>
+                      {reportCmpTotalIncome !== 0 && (
+                        <p className={cn('text-xs mt-0.5 font-medium', reportTotalIncome >= reportCmpTotalIncome ? 'text-emerald-600' : 'text-red-500')}>
+                          {reportTotalIncome >= reportCmpTotalIncome ? '▲' : '▼'} {Math.abs(((reportTotalIncome - reportCmpTotalIncome) / reportCmpTotalIncome) * 100).toFixed(1)}%
+                        </p>
+                      )}
+                    </div>
+                    <div className="bg-red-50/60 border border-red-200 rounded-2xl p-4 opacity-70">
+                      <p className="text-xs text-red-500 font-medium mb-1">Uitgaven (vgl.)</p>
+                      <p className="text-xl font-bold text-red-600">{formatCurrency(reportCmpTotalExpense, reportCurrency)}</p>
+                      {reportCmpTotalExpense !== 0 && (
+                        <p className={cn('text-xs mt-0.5 font-medium', reportTotalExpense <= reportCmpTotalExpense ? 'text-emerald-600' : 'text-red-500')}>
+                          {reportTotalExpense <= reportCmpTotalExpense ? '▼' : '▲'} {Math.abs(((reportTotalExpense - reportCmpTotalExpense) / reportCmpTotalExpense) * 100).toFixed(1)}%
+                        </p>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Category table */}
+              <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-xs text-slate-500">
+                      <th className="text-left px-4 py-3 font-medium">
+                        <button onClick={() => setReportSort(s => s === 'category_asc' ? 'category_desc' : 'category_asc')}
+                          className="flex items-center gap-1 hover:text-slate-800 transition-colors">
+                          Categorie <ArrowUpDown size={11} className={cn(reportSort.startsWith('category') ? 'text-indigo-500' : 'text-slate-300')} />
+                        </button>
+                      </th>
+                      <th className="text-right px-4 py-3 font-medium">
+                        <button onClick={() => setReportSort(s => s === 'income_desc' ? 'income_asc' : 'income_desc')}
+                          className="flex items-center gap-1 ml-auto hover:text-slate-800 transition-colors">
+                          Inkomen <ArrowUpDown size={11} className={cn(reportSort.startsWith('income') ? 'text-indigo-500' : 'text-slate-300')} />
+                        </button>
+                      </th>
+                      {reportCompare && <th className="text-right px-4 py-3 font-medium text-slate-400">Inkomen (vgl.)</th>}
+                      <th className="text-right px-4 py-3 font-medium">
+                        <button onClick={() => setReportSort(s => s === 'expense_desc' ? 'expense_asc' : 'expense_desc')}
+                          className="flex items-center gap-1 ml-auto hover:text-slate-800 transition-colors">
+                          Uitgaven <ArrowUpDown size={11} className={cn(reportSort.startsWith('expense') ? 'text-indigo-500' : 'text-slate-300')} />
+                        </button>
+                      </th>
+                      {reportCompare && <th className="text-right px-4 py-3 font-medium text-slate-400">Uitgaven (vgl.)</th>}
+                      {reportCompare && <th className="text-right px-4 py-3 font-medium text-slate-400">Δ Uitgaven</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reportRows.length === 0 ? (
+                      <tr><td colSpan={reportCompare ? 6 : 3} className="text-center text-slate-400 italic py-10">Geen verwerkte transacties in deze periode.</td></tr>
+                    ) : reportRows.map((row, i) => {
+                      const delta = row.cmpExpense !== 0 ? ((row.expense - row.cmpExpense) / row.cmpExpense) * 100 : null
+                      return (
+                        <tr key={row.cat} className={cn('border-b border-slate-50 hover:bg-slate-50/60 transition-colors', i === reportRows.length - 1 && 'border-0')}>
+                          <td className="px-4 py-2.5 font-medium text-slate-800">{row.cat}</td>
+                          <td className="px-4 py-2.5 text-right tabular-nums">
+                            {row.income > 0 ? <span className="text-emerald-600 font-medium">{formatCurrency(row.income, reportCurrency)}</span> : <span className="text-slate-300">—</span>}
+                          </td>
+                          {reportCompare && (
+                            <td className="px-4 py-2.5 text-right tabular-nums text-slate-400">
+                              {row.cmpIncome > 0 ? formatCurrency(row.cmpIncome, reportCurrency) : <span className="text-slate-200">—</span>}
+                            </td>
+                          )}
+                          <td className="px-4 py-2.5 text-right tabular-nums">
+                            {row.expense > 0 ? <span className="text-red-500 font-medium">{formatCurrency(row.expense, reportCurrency)}</span> : <span className="text-slate-300">—</span>}
+                          </td>
+                          {reportCompare && (
+                            <td className="px-4 py-2.5 text-right tabular-nums text-slate-400">
+                              {row.cmpExpense > 0 ? formatCurrency(row.cmpExpense, reportCurrency) : <span className="text-slate-200">—</span>}
+                            </td>
+                          )}
+                          {reportCompare && (
+                            <td className="px-4 py-2.5 text-right tabular-nums">
+                              {delta !== null
+                                ? <span className={cn('text-xs font-semibold', delta > 0 ? 'text-red-500' : 'text-emerald-600')}>{delta > 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(1)}%</span>
+                                : <span className="text-slate-300">—</span>}
+                            </td>
+                          )}
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                  {reportRows.length > 0 && (
+                    <tfoot>
+                      <tr className="border-t border-slate-200 bg-slate-50 font-semibold text-slate-700">
+                        <td className="px-4 py-3 text-xs uppercase tracking-wide text-slate-500">Totaal</td>
+                        <td className="px-4 py-3 text-right tabular-nums text-emerald-600">{formatCurrency(reportTotalIncome, reportCurrency)}</td>
+                        {reportCompare && <td className="px-4 py-3 text-right tabular-nums text-slate-400 text-sm">{formatCurrency(reportCmpTotalIncome, reportCurrency)}</td>}
+                        <td className="px-4 py-3 text-right tabular-nums text-red-500">{formatCurrency(reportTotalExpense, reportCurrency)}</td>
+                        {reportCompare && <td className="px-4 py-3 text-right tabular-nums text-slate-400 text-sm">{formatCurrency(reportCmpTotalExpense, reportCurrency)}</td>}
+                        {reportCompare && <td className="px-4 py-3 text-right tabular-nums">
+                          {reportCmpTotalExpense !== 0 && (() => {
+                            const d = ((reportTotalExpense - reportCmpTotalExpense) / reportCmpTotalExpense) * 100
+                            return <span className={cn('text-xs font-semibold', d > 0 ? 'text-red-500' : 'text-emerald-600')}>{d > 0 ? '▲' : '▼'} {Math.abs(d).toFixed(1)}%</span>
+                          })()}
+                        </td>}
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+
+              {/* Net result */}
+              {reportRows.length > 0 && (
+                <div className={cn('rounded-2xl px-5 py-4 border flex items-center justify-between',
+                  reportTotalIncome - reportTotalExpense >= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200')}>
+                  <span className="text-sm font-medium text-slate-700">Netto resultaat</span>
+                  <span className={cn('text-xl font-bold', reportTotalIncome - reportTotalExpense >= 0 ? 'text-emerald-700' : 'text-red-600')}>
+                    {formatCurrency(reportTotalIncome - reportTotalExpense, reportCurrency)}
+                  </span>
+                </div>
+              )}
             </div>
           )}
         </>
