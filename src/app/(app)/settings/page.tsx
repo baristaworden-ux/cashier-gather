@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { LogOut, Plus, Trash2, Search, PiggyBank, ChevronRight } from 'lucide-react'
+import { LogOut, Plus, Trash2, Search, PiggyBank, ChevronRight, CornerDownRight, X } from 'lucide-react'
 import { AdminCategory, Vendor, Account, AccountBalance } from '@/types'
 import { cn, formatCurrency, CURRENCIES } from '@/lib/utils'
 
@@ -54,6 +54,7 @@ export default function SettingsPage() {
   const [newSubName, setNewSubName] = useState('')
   const [savingSub, setSavingSub] = useState(false)
   const [subError, setSubError] = useState<string | null>(null)
+  const [movingCatId, setMovingCatId] = useState<string | null>(null)
 
   // Vendors
   const [vendors, setVendors] = useState<Vendor[]>([])
@@ -158,6 +159,28 @@ export default function SettingsPage() {
   async function deleteCategory(id: string) {
     await fetch(`/api/categories?id=${id}`, { method: 'DELETE' })
     setCategories(c => c.filter(x => x.id !== id))
+  }
+
+  async function moveToSubCategory(id: string, parentId: string) {
+    const res = await fetch('/api/categories', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, parent_id: parentId }),
+    })
+    if (res.ok) {
+      const { category } = await res.json()
+      setCategories(c => c.map(x => x.id === id ? { ...x, parent_id: category.parent_id } : x))
+    }
+    setMovingCatId(null)
+  }
+
+  async function promoteToParent(id: string) {
+    const res = await fetch('/api/categories', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, parent_id: null }),
+    })
+    if (res.ok) {
+      setCategories(c => c.map(x => x.id === id ? { ...x, parent_id: null } : x))
+    }
   }
 
   async function seedDefaultCategories() {
@@ -346,6 +369,11 @@ export default function SettingsPage() {
                       {cat.type === 'income' ? 'Inkomsten' : cat.type === 'advance' ? 'Voorschot' : 'Uitgaven'}
                     </span>
                     <button
+                      onClick={() => setMovingCatId(movingCatId === cat.id ? null : cat.id)}
+                      className="text-slate-300 hover:text-violet-500 transition-colors p-1" title="Verplaats naar subcategorie">
+                      <CornerDownRight size={13} />
+                    </button>
+                    <button
                       onClick={() => { setAddingSubFor(addingSubFor === cat.id ? null : cat.id); setNewSubName('') }}
                       className="text-slate-300 hover:text-indigo-500 transition-colors p-1" title="Subcategorie toevoegen">
                       <Plus size={14} />
@@ -356,6 +384,27 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
+                {/* Move to subcategory picker */}
+                {movingCatId === cat.id && (
+                  <div className="flex items-center gap-2 pl-4 pr-4 py-2 border-t border-violet-100 bg-violet-50/40">
+                    <CornerDownRight size={13} className="text-violet-400 shrink-0" />
+                    <span className="text-xs text-violet-700 font-medium whitespace-nowrap">Verplaats onder:</span>
+                    <select
+                      defaultValue=""
+                      onChange={e => e.target.value && moveToSubCategory(cat.id, e.target.value)}
+                      className="flex-1 px-2 py-1.5 text-sm border border-violet-200 rounded-lg outline-none focus:border-violet-400 bg-white"
+                    >
+                      <option value="">Kies hoofdcategorie…</option>
+                      {parents.filter(p => p.id !== cat.id).map(p => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                    <button onClick={() => setMovingCatId(null)} className="text-slate-300 hover:text-slate-500 transition-colors p-1">
+                      <X size={13} />
+                    </button>
+                  </div>
+                )}
+
                 {/* Subcategories */}
                 {subs(cat.id).map(sub => (
                   <div key={sub.id} className="flex items-center justify-between pl-9 pr-4 py-2 border-t border-slate-50 bg-slate-50/50">
@@ -363,9 +412,16 @@ export default function SettingsPage() {
                       <ChevronRight size={12} className="text-slate-300 shrink-0" />
                       <span className="text-sm">{sub.name}</span>
                     </div>
-                    <button onClick={() => deleteCategory(sub.id)} className="text-slate-300 hover:text-red-400 transition-colors p-1">
-                      <Trash2 size={13} />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => promoteToParent(sub.id)}
+                        className="text-slate-300 hover:text-violet-500 transition-colors p-1" title="Terugzetten als hoofdcategorie">
+                        <CornerDownRight size={12} className="rotate-180" />
+                      </button>
+                      <button onClick={() => deleteCategory(sub.id)} className="text-slate-300 hover:text-red-400 transition-colors p-1">
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
                   </div>
                 ))}
 
