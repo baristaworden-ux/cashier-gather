@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef, useCallback } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Account, AccountBalance, Transaction, TransactionType, Vendor, AdminCategory } from '@/types'
 import { formatCurrency, formatDate, cn, CURRENCIES } from '@/lib/utils'
 import { Upload, Sparkles, Search, ArrowUpDown, Link2, Unlink, PiggyBank, ChevronRight, X, Plus, Trash2, RotateCcw } from 'lucide-react'
@@ -27,7 +28,8 @@ interface CellDropdown {
 }
 
 export default function AdministratiePage() {
-  const [tab, setTab] = useState<Tab>('overzicht')
+  const searchParams = useSearchParams()
+  const tab = (searchParams.get('tab') || 'overzicht') as Tab
   const [accounts, setAccounts] = useState<Account[]>([])
   const [balances, setBalances] = useState<AccountBalance[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
@@ -719,13 +721,10 @@ export default function AdministratiePage() {
     }
   })
 
-  const tabs: { key: Tab; label: string }[] = [
-    { key: 'overzicht', label: 'Overzicht' },
-    { key: 'transacties', label: 'Transacties' },
-    { key: 'uploaden', label: 'Uploaden' },
-    { key: 'overboeking', label: 'Overboeking' },
-    { key: 'rapport', label: 'Rapport' },
-  ]
+  const TAB_LABELS: Record<Tab, string> = {
+    overzicht: 'Overzicht', transacties: 'Transacties', uploaden: 'Uploaden',
+    overboeking: 'Overboeking', rapport: 'Rapport',
+  }
 
   const CATEGORY_COLORS: Record<string, string> = {
     'Wonen': 'bg-blue-100 text-blue-700', 'Eten & drinken': 'bg-orange-100 text-orange-700',
@@ -740,18 +739,17 @@ export default function AdministratiePage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Administratie</h1>
-          <p className="text-sm text-slate-500 mt-1">Bankrekeningen, transacties & overzichten.</p>
+          <h1 className="text-2xl font-semibold">{TAB_LABELS[tab]}</h1>
         </div>
         <div className="flex items-center gap-2">
-          {transactions.some(t => t.original_description) && (
+          {tab === 'transacties' && transactions.some(t => t.original_description) && (
             <button onClick={simplifyDescriptions} disabled={simplifying || categorizing}
               className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white text-sm font-medium rounded-xl transition-colors disabled:opacity-60">
               <Sparkles size={15} />
               {simplifying ? 'Vereenvoudigen…' : 'Omschrijvingen vereenvoudigen'}
             </button>
           )}
-          {uncategorizedCount > 0 && (
+          {tab === 'transacties' && uncategorizedCount > 0 && (
             <button onClick={categorizeAll} disabled={categorizing || simplifying}
               className="flex items-center gap-2 px-4 py-2 bg-violet-500 hover:bg-violet-600 text-white text-sm font-medium rounded-xl transition-colors disabled:opacity-60">
               <Sparkles size={15} />
@@ -759,17 +757,6 @@ export default function AdministratiePage() {
             </button>
           )}
         </div>
-      </div>
-
-      {/* Main tabs */}
-      <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-fit">
-        {tabs.map(t => (
-          <button key={t.key} onClick={() => setTab(t.key)}
-            className={cn('px-4 py-1.5 rounded-lg text-sm font-medium transition-colors',
-              tab === t.key ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700')}>
-            {t.label}
-          </button>
-        ))}
       </div>
 
       {loading ? <div className="text-sm text-slate-400 py-16 text-center">Laden…</div> : (
