@@ -71,6 +71,10 @@ export default function AdministratiePage() {
   const [detailLinkOpen, setDetailLinkOpen] = useState(false)
   const [detailLinkAccount, setDetailLinkAccount] = useState('')
   const [detailLinkSearch, setDetailLinkSearch] = useState('')
+  const [detailVendorOpen, setDetailVendorOpen] = useState(false)
+  const [detailVendorSearch, setDetailVendorSearch] = useState('')
+  const [detailCategoryOpen, setDetailCategoryOpen] = useState(false)
+  const [detailCategorySearch, setDetailCategorySearch] = useState('')
 
   // Upload
   const [uploadFile, setUploadFile] = useState<File | null>(null)
@@ -283,6 +287,10 @@ export default function AdministratiePage() {
     setDetailLinkOpen(false)
     setDetailLinkAccount('')
     setDetailLinkSearch('')
+    setDetailVendorOpen(false)
+    setDetailVendorSearch('')
+    setDetailCategoryOpen(false)
+    setDetailCategorySearch('')
   }
 
   async function saveDetail() {
@@ -1457,38 +1465,106 @@ export default function AdministratiePage() {
                 {/* Leverancier */}
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-slate-600">Leverancier</label>
-                  <input
-                    type="text"
-                    list="detail-vendors"
-                    value={detailEdits.vendor ?? detailTx.vendor ?? ''}
-                    onChange={e => setDetailEdits(d => ({ ...d, vendor: e.target.value }))}
-                    placeholder="—"
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400"
-                  />
-                  <datalist id="detail-vendors">{vendorNames.map(v => <option key={v} value={v} />)}</datalist>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => { setDetailVendorOpen(o => !o); setDetailVendorSearch('') }}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg text-left flex items-center justify-between hover:border-indigo-400 transition-colors"
+                    >
+                      <span className={detailEdits.vendor ?? detailTx.vendor ? 'text-slate-800' : 'text-slate-400'}>
+                        {detailEdits.vendor ?? detailTx.vendor ?? '—'}
+                      </span>
+                      <Search size={13} className="text-slate-300 shrink-0" />
+                    </button>
+                    {detailVendorOpen && (
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-20 overflow-hidden">
+                        <div className="p-2 border-b border-slate-100">
+                          <input
+                            autoFocus
+                            type="text"
+                            placeholder="Leverancier zoeken…"
+                            value={detailVendorSearch}
+                            onChange={e => setDetailVendorSearch(e.target.value)}
+                            className="w-full px-2.5 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400"
+                          />
+                        </div>
+                        <div className="max-h-48 overflow-y-auto">
+                          <button
+                            onClick={() => { setDetailEdits(d => ({ ...d, vendor: '' })); setDetailVendorOpen(false) }}
+                            className="w-full text-left px-3 py-2 text-xs text-slate-400 italic hover:bg-slate-50 transition-colors border-b border-slate-50"
+                          >
+                            — Geen leverancier
+                          </button>
+                          {vendorNames
+                            .filter(v => !detailVendorSearch || v.toLowerCase().includes(detailVendorSearch.toLowerCase()))
+                            .map(v => (
+                              <button key={v} onClick={() => { setDetailEdits(d => ({ ...d, vendor: v })); setDetailVendorOpen(false) }}
+                                className="w-full text-left px-3 py-2 text-sm text-slate-800 hover:bg-indigo-50 hover:text-indigo-700 transition-colors">
+                                {v}
+                              </button>
+                            ))}
+                          {detailVendorSearch && !vendorNames.find(v => v.toLowerCase() === detailVendorSearch.toLowerCase()) && (
+                            <button
+                              onClick={() => { setDetailEdits(d => ({ ...d, vendor: detailVendorSearch })); setDetailVendorOpen(false) }}
+                              className="w-full text-left px-3 py-2 text-sm text-indigo-600 hover:bg-indigo-50 transition-colors border-t border-slate-50">
+                              + &quot;{detailVendorSearch}&quot; toevoegen
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* Categorie */}
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-slate-600">Categorie</label>
-                  <select
-                    value={detailEdits.category ?? detailTx.category ?? ''}
-                    onChange={e => setDetailEdits(d => ({ ...d, category: e.target.value }))}
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white"
-                  >
-                    <option value="">— geen —</option>
-                    {parentCategories.map(p => {
-                      const subs = subCategories(p.id)
-                      return subs.length > 0 ? (
-                        <optgroup key={p.id} label={p.name}>
-                          <option value={p.name}>{p.name}</option>
-                          {subs.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                        </optgroup>
-                      ) : (
-                        <option key={p.id} value={p.name}>{p.name}</option>
-                      )
-                    })}
-                  </select>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => { setDetailCategoryOpen(o => !o); setDetailCategorySearch('') }}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg text-left flex items-center justify-between hover:border-indigo-400 transition-colors"
+                    >
+                      <span className={detailEdits.category ?? detailTx.category ? 'text-slate-800' : 'text-slate-400'}>
+                        {detailEdits.category ?? detailTx.category ?? '— geen —'}
+                      </span>
+                      <Search size={13} className="text-slate-300 shrink-0" />
+                    </button>
+                    {detailCategoryOpen && (
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-20 overflow-hidden">
+                        <div className="p-2 border-b border-slate-100">
+                          <input
+                            autoFocus
+                            type="text"
+                            placeholder="Categorie zoeken…"
+                            value={detailCategorySearch}
+                            onChange={e => setDetailCategorySearch(e.target.value)}
+                            className="w-full px-2.5 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400"
+                          />
+                        </div>
+                        <div className="max-h-48 overflow-y-auto">
+                          <button
+                            onClick={() => { setDetailEdits(d => ({ ...d, category: '' })); setDetailCategoryOpen(false) }}
+                            className="w-full text-left px-3 py-2 text-xs text-slate-400 italic hover:bg-slate-50 transition-colors border-b border-slate-50"
+                          >
+                            — Geen categorie
+                          </button>
+                          {allCategoryOptions
+                            .filter(c => !detailCategorySearch || c.toLowerCase().includes(detailCategorySearch.toLowerCase()))
+                            .map(c => {
+                              const isChild = categories.find(cat => cat.name === c)?.parent_id
+                              return (
+                                <button key={c} onClick={() => { setDetailEdits(d => ({ ...d, category: c })); setDetailCategoryOpen(false) }}
+                                  className={cn('w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 hover:text-indigo-700 transition-colors',
+                                    isChild ? 'pl-6 text-slate-600' : 'text-slate-800 font-medium')}>
+                                  {isChild && <span className="text-slate-300 mr-1">›</span>}{c}
+                                </button>
+                              )
+                            })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
