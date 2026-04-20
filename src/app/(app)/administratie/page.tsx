@@ -20,7 +20,8 @@ type SortKey = 'date_desc' | 'date_asc' | 'amount_desc' | 'amount_asc'
 interface CellDropdown {
   txId: string
   field: 'vendor' | 'category'
-  top: number
+  top?: number
+  bottom?: number
   left: number
 }
 
@@ -200,7 +201,13 @@ export default function AdministratiePage() {
     e.stopPropagation()
     if (cellDropdown?.txId === tx.id && cellDropdown.field === field) { setCellDropdown(null); return }
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-    setCellDropdown({ txId: tx.id, field, top: rect.bottom + 4, left: rect.left })
+    const spaceBelow = window.innerHeight - rect.bottom
+    const dropdownHeight = 260 // max-h-52 + search bar
+    const openUp = spaceBelow < dropdownHeight
+    setCellDropdown({
+      txId: tx.id, field, left: rect.left,
+      ...(openUp ? { bottom: window.innerHeight - rect.top + 4 } : { top: rect.bottom + 4 }),
+    })
     setCellSearch('')
   }
 
@@ -1195,7 +1202,7 @@ export default function AdministratiePage() {
               {cellDropdown && (
                 <div
                   ref={dropdownRef}
-                  style={{ position: 'fixed', top: cellDropdown.top, left: cellDropdown.left, zIndex: 200 }}
+                  style={{ position: 'fixed', top: cellDropdown.top, bottom: cellDropdown.bottom, left: cellDropdown.left, zIndex: 200 }}
                   className="bg-white border border-slate-200 rounded-xl shadow-xl w-60 overflow-hidden"
                 >
                   <div className="p-2 border-b border-slate-100">
