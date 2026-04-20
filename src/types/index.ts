@@ -1,4 +1,4 @@
-export type TransactionType = 'income' | 'expense' | 'transfer' | 'investment'
+export type TransactionType = 'income' | 'expense' | 'transfer' | 'investment' | 'advance'
 export type TransactionStatus = 'draft' | 'processed'
 export type BankSource = 'rabobank' | 'wise' | 'revolut' | 'ocbc' | 'manual'
 export type AccountType = 'account' | 'jar'

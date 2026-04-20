@@ -828,6 +828,7 @@ export default function AdministratiePage() {
                   <option value="expense">Uitgaven</option>
                   <option value="transfer">Overboekingen</option>
                   <option value="investment">Investeringen</option>
+                  <option value="advance">Voorschot</option>
                 </select>
                 <select value={filterVendor} onChange={e => setFilterVendor(e.target.value)}
                   className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
@@ -1005,8 +1006,8 @@ export default function AdministratiePage() {
                                 </td>
 
                                 <td className={cn('px-4 py-2.5 text-right font-semibold whitespace-nowrap text-sm',
-                                  tx.type === 'income' ? 'text-emerald-600' : tx.type === 'expense' ? 'text-red-500' : tx.type === 'investment' ? 'text-blue-600' : 'text-slate-500')}>
-                                  {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : tx.type === 'investment' ? '↗' : ''}
+                                  tx.type === 'income' ? 'text-emerald-600' : tx.type === 'expense' ? 'text-red-500' : tx.type === 'investment' ? 'text-blue-600' : tx.type === 'advance' ? 'text-amber-600' : 'text-slate-500')}>
+                                  {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : tx.type === 'investment' ? '↗' : tx.type === 'advance' ? '⟳' : ''}
                                   {formatCurrency(tx.amount, tx.currency)}
                                 </td>
                                 <td className="px-2 py-2.5">
@@ -1424,8 +1425,8 @@ export default function AdministratiePage() {
               <div>
                 <p className="text-xs text-slate-400 mb-1">{formatDate(detailEdits.date ?? detailTx.date)} · {accountMap[detailTx.account_id]?.name ?? '—'} · {detailTx.currency}</p>
                 <p className={cn('text-2xl font-bold',
-                  detailTx.type === 'income' ? 'text-emerald-600' : detailTx.type === 'investment' ? 'text-blue-600' : detailTx.type === 'expense' ? 'text-red-500' : 'text-slate-500')}>
-                  {detailTx.type === 'income' ? '+' : detailTx.type === 'investment' ? '↗' : detailTx.type === 'expense' ? '-' : ''}{formatCurrency(detailTx.amount, detailTx.currency)}
+                  detailTx.type === 'income' ? 'text-emerald-600' : detailTx.type === 'investment' ? 'text-blue-600' : detailTx.type === 'advance' ? 'text-amber-600' : detailTx.type === 'expense' ? 'text-red-500' : 'text-slate-500')}>
+                  {detailTx.type === 'income' ? '+' : detailTx.type === 'investment' ? '↗' : detailTx.type === 'advance' ? '⟳' : detailTx.type === 'expense' ? '-' : ''}{formatCurrency(detailTx.amount, detailTx.currency)}
                 </p>
               </div>
               <button onClick={() => setDetailTx(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
@@ -1476,6 +1477,7 @@ export default function AdministratiePage() {
                     <option value="income">Inkomsten</option>
                     <option value="transfer">Overboeking</option>
                     <option value="investment">Investering</option>
+                    <option value="advance">Voorschot</option>
                   </select>
                 </div>
               </div>
