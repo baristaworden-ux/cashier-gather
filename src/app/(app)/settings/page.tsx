@@ -50,6 +50,7 @@ export default function SettingsPage() {
   const [newCatType, setNewCatType] = useState<'expense' | 'income' | 'advance' | 'investment'>('expense')
   const [newCatParent, setNewCatParent] = useState('')
   const [savingCat, setSavingCat] = useState(false)
+  const [catError, setCatError] = useState<string | null>(null)
   const [addingSubFor, setAddingSubFor] = useState<string | null>(null)
   const [newSubName, setNewSubName] = useState('')
   const [savingSub, setSavingSub] = useState(false)
@@ -122,15 +123,21 @@ export default function SettingsPage() {
   async function addCategory() {
     if (!newCatName.trim()) return
     setSavingCat(true)
+    setCatError(null)
+    const body: Record<string, string> = { name: newCatName.trim(), type: newCatType }
+    if (newCatParent) body.parent_id = newCatParent
     const res = await fetch('/api/categories', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newCatName.trim(), type: newCatType, parent_id: newCatParent || null }),
+      body: JSON.stringify(body),
     })
     if (res.ok) {
       const { category } = await res.json()
       setCategories(c => [...c, category].sort((a, b) => a.name.localeCompare(b.name)))
       setNewCatName('')
       setNewCatParent('')
+    } else {
+      const d = await res.json().catch(() => ({}))
+      setCatError(d.error || 'Opslaan mislukt.')
     }
     setSavingCat(false)
   }
@@ -456,7 +463,7 @@ export default function SettingsPage() {
           {/* Add top-level category */}
           <div className={cn('flex gap-2 px-4 py-3', categories.length > 0 && 'border-t border-slate-100')}>
             <input type="text" placeholder="Nieuwe hoofdcategorie…" value={newCatName}
-              onChange={e => setNewCatName(e.target.value)}
+              onChange={e => { setNewCatName(e.target.value); setCatError(null) }}
               onKeyDown={e => e.key === 'Enter' && addCategory()}
               className="flex-1 px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
             <select value={newCatType} onChange={e => setNewCatType(e.target.value as 'expense' | 'income' | 'advance' | 'investment')}
@@ -468,9 +475,12 @@ export default function SettingsPage() {
             </select>
             <button onClick={addCategory} disabled={!newCatName.trim() || savingCat}
               className="px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm transition-colors disabled:opacity-50">
-              <Plus size={14} />
+              {savingCat ? '…' : <Plus size={14} />}
             </button>
           </div>
+          {catError && (
+            <div className="px-4 pb-3 text-xs text-red-500">{catError}</div>
+          )}
         </div>
       </section>
 
