@@ -227,6 +227,11 @@ export default function SettingsPage() {
   // ── Derived ──
   const regularAccounts = accounts.filter(a => a.account_type !== 'jar')
   const jars = accounts.filter(a => a.account_type === 'jar')
+  const accountsWithJars = regularAccounts.map(acc => ({
+    account: acc,
+    jars: jars.filter(j => j.linked_account_id === acc.id),
+  }))
+  const orphanJars = jars.filter(j => !j.linked_account_id)
   const parentCategories = categories.filter(c => !c.parent_id).sort((a, b) => a.name.localeCompare(b.name))
   const subCats = (parentId: string) => categories.filter(c => c.parent_id === parentId).sort((a, b) => a.name.localeCompare(b.name))
   const filteredVendors = vendors.filter(v =>
@@ -286,17 +291,53 @@ export default function SettingsPage() {
         <p className="text-sm text-slate-500 mt-1">Beheer rekeningen, jars, categorieën en leveranciers.</p>
       </div>
 
-      {/* ── Rekeningen ── */}
+      {/* ── Rekeningen & Jars ── */}
       <section className="space-y-4">
-        <h2 className="text-base font-semibold text-slate-900">Rekeningen</h2>
+        <h2 className="text-base font-semibold text-slate-900">Rekeningen & Jars</h2>
         <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-          {regularAccounts.length > 0 && (
-            <div className="px-4">
-              {regularAccounts.map(a => <AccountRow key={a.id} account={a} />)}
+          {accountsWithJars.map(({ account, jars: linkedJars }, i) => (
+            <div key={account.id} className={cn(i > 0 && 'border-t border-slate-100')}>
+              <div className="px-4">
+                <AccountRow account={account} />
+              </div>
+              {linkedJars.map(jar => (
+                <div key={jar.id} className="border-t border-slate-50 bg-slate-50/40 pl-8 pr-4">
+                  <div className="flex items-center gap-1.5 py-2.5">
+                    <ChevronRight size={12} className="text-slate-300 shrink-0" />
+                    <div className="flex items-center gap-2.5 flex-1">
+                      <div className="w-7 h-7 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
+                        <PiggyBank size={13} className="text-amber-600" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-slate-800">{jar.name}</p>
+                        <p className="text-xs text-slate-400">{jar.currency || '—'}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {balances.filter(b => b.account_id === jar.id).map(b => (
+                          <span key={b.id} className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">
+                            {formatCurrency(b.balance, b.currency)}
+                          </span>
+                        ))}
+                        <button onClick={() => deleteAccount(jar.id, 'jar')}
+                          className="text-slate-300 hover:text-red-400 transition-colors p-1 shrink-0">
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+          {orphanJars.length > 0 && (
+            <div className={cn('px-4', (accountsWithJars.length > 0) && 'border-t border-slate-100')}>
+              <p className="text-xs text-slate-400 font-medium pt-3 pb-1">Jars zonder rekening</p>
+              {orphanJars.map(a => <AccountRow key={a.id} account={a} />)}
             </div>
           )}
-          <div className={cn('flex gap-2 px-4 py-3', regularAccounts.length > 0 && 'border-t border-slate-100')}>
-            <input type="text" placeholder="Naam rekening…" value={newAccount.name}
+          {/* Add bank account */}
+          <div className={cn('flex gap-2 px-4 py-3 border-t border-slate-100', accounts.length === 0 && 'border-t-0')}>
+            <input type="text" placeholder="Nieuwe rekening…" value={newAccount.name}
               onChange={e => setNewAccount(a => ({ ...a, name: e.target.value }))}
               onKeyDown={e => e.key === 'Enter' && addAccount()}
               className="flex-1 px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
@@ -309,33 +350,20 @@ export default function SettingsPage() {
               <Plus size={14} />
             </button>
           </div>
-        </div>
-      </section>
-
-      {/* ── Jars ── */}
-      <section className="space-y-4">
-        <h2 className="text-base font-semibold text-slate-900">Jars</h2>
-        <p className="text-sm text-slate-500">
-          Een jar is een spaarpotje of rekening in een specifieke valuta. Je kunt er transacties naartoe uploaden of overboeken.
-        </p>
-        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-          {jars.length > 0 && (
-            <div className="px-4">
-              {jars.map(a => <AccountRow key={a.id} account={a} />)}
-            </div>
-          )}
-          <div className={cn('flex flex-wrap gap-2 px-4 py-3', jars.length > 0 && 'border-t border-slate-100')}>
+          {/* Add jar */}
+          <div className="flex flex-wrap gap-2 px-4 pb-3 border-t border-amber-100 bg-amber-50/40">
+            <p className="w-full text-xs text-amber-700 font-medium pt-2.5">Jar toevoegen</p>
             <input type="text" placeholder="Naam jar…" value={newJar.name}
               onChange={e => setNewJar(j => ({ ...j, name: e.target.value }))}
               onKeyDown={e => e.key === 'Enter' && addJar()}
-              className="flex-1 min-w-32 px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+              className="flex-1 min-w-32 px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white" />
             <select value={newJar.currency} onChange={e => setNewJar(j => ({ ...j, currency: e.target.value }))}
               className="w-24 px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
               {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
             <select value={newJar.linked_account_id} onChange={e => setNewJar(j => ({ ...j, linked_account_id: e.target.value }))}
               className="flex-1 min-w-36 px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
-              <option value="">Geen gekoppelde rekening</option>
+              <option value="">Geen rekening</option>
               {regularAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
             <button onClick={addJar} disabled={!newJar.name.trim() || savingJar}

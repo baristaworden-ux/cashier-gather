@@ -598,13 +598,17 @@ export default function AdministratiePage() {
   const jars = accounts.filter(a => a.account_type === 'jar')
   const accountMap = Object.fromEntries(accounts.map(a => [a.id, a]))
 
+  // Group jars under their linked parent account
+  const accountsWithJars = regularAccounts.map(acc => ({
+    account: acc,
+    jars: jars.filter(j => j.linked_account_id === acc.id),
+  }))
+  const orphanJars = jars.filter(j => !j.linked_account_id)
+
   const balancesByCurrency = balances
     .filter(b => regularAccounts.some(a => a.id === b.account_id))
     .reduce((acc, b) => { acc[b.currency] = (acc[b.currency] || 0) + b.balance; return acc }, {} as Record<string, number>)
 
-  const jarBalancesByCurrency = balances
-    .filter(b => jars.some(a => a.id === b.account_id))
-    .reduce((acc, b) => { acc[b.currency] = (acc[b.currency] || 0) + b.balance; return acc }, {} as Record<string, number>)
 
   const advanceCategoryNames = new Set(categories.filter(c => c.type === 'advance').map(c => c.name))
   const spendingByCategory = transactions.filter(t => (t.type === 'expense' || t.type === 'investment') && t.category && !advanceCategoryNames.has(t.category))
@@ -702,62 +706,72 @@ export default function AdministratiePage() {
                 </div>
               )}
 
-              {regularAccounts.length > 0 && (
+              {(regularAccounts.length > 0 || jars.length > 0) && (
                 <div>
                   <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Rekeningen</h2>
                   <div className="space-y-2">
-                    {regularAccounts.map(account => {
+                    {accountsWithJars.map(({ account, jars: linkedJars }) => {
                       const acctBalances = balances.filter(b => b.account_id === account.id)
                       return (
-                        <div key={account.id} className="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className={`w-8 h-8 rounded-lg ${BANK_COLORS[account.bank] || 'bg-slate-400'} flex items-center justify-center`}>
-                              <span className="text-white text-xs font-bold">{account.bank[0].toUpperCase()}</span>
+                        <div key={account.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                          <div className="px-4 py-3 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-8 h-8 rounded-lg ${BANK_COLORS[account.bank] || 'bg-slate-400'} flex items-center justify-center`}>
+                                <span className="text-white text-xs font-bold">{account.bank[0].toUpperCase()}</span>
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-slate-900">{account.name}</p>
+                                <p className="text-xs text-slate-400">{BANK_LABELS[account.bank]}{account.account_number ? ` · ${account.account_number}` : ''}</p>
+                              </div>
+                            </div>
+                            <div className="text-right space-y-0.5">
+                              {acctBalances.length === 0 ? <span className="text-xs text-slate-400">Geen saldo</span>
+                                : acctBalances.map(b => <p key={b.id} className="text-sm font-semibold">{formatCurrency(b.balance, b.currency)}</p>)}
+                            </div>
+                          </div>
+                          {linkedJars.map(jar => {
+                            const jarBals = balances.filter(b => b.account_id === jar.id)
+                            return (
+                              <div key={jar.id} className="flex items-center justify-between pl-8 pr-4 py-2.5 border-t border-slate-100 bg-amber-50/40">
+                                <div className="flex items-center gap-2">
+                                  <ChevronRight size={12} className="text-slate-300 shrink-0" />
+                                  <div className="w-6 h-6 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
+                                    <PiggyBank size={12} className="text-amber-600" />
+                                  </div>
+                                  <p className="text-sm font-medium text-slate-700">{jar.name}</p>
+                                  {jar.currency && <span className="text-xs text-amber-600 font-medium">{jar.currency}</span>}
+                                </div>
+                                <div className="text-right">
+                                  {jarBals.length === 0 ? <span className="text-xs text-slate-400">Geen saldo</span>
+                                    : jarBals.map(b => <p key={b.id} className="text-sm font-semibold text-slate-800">{formatCurrency(b.balance, b.currency)}</p>)}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )
+                    })}
+                    {orphanJars.map(jar => {
+                      const jarBals = balances.filter(b => b.account_id === jar.id)
+                      return (
+                        <div key={jar.id} className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
+                              <PiggyBank size={14} className="text-amber-600" />
                             </div>
                             <div>
-                              <p className="text-sm font-medium text-slate-900">{account.name}</p>
-                              <p className="text-xs text-slate-400">{BANK_LABELS[account.bank]}{account.account_number ? ` · ${account.account_number}` : ''}</p>
+                              <p className="text-sm font-medium text-slate-900">{jar.name}</p>
+                              {jar.currency && <p className="text-xs text-amber-600 font-medium">{jar.currency}</p>}
                             </div>
                           </div>
-                          <div className="text-right space-y-0.5">
-                            {acctBalances.length === 0 ? <span className="text-xs text-slate-400">Geen saldo</span>
-                              : acctBalances.map(b => <p key={b.id} className="text-sm font-semibold">{formatCurrency(b.balance, b.currency)}</p>)}
+                          <div className="text-right">
+                            {jarBals.length === 0 ? <span className="text-xs text-slate-400">Geen saldo</span>
+                              : jarBals.map(b => <p key={b.id} className="text-sm font-semibold">{formatCurrency(b.balance, b.currency)}</p>)}
                           </div>
                         </div>
                       )
                     })}
                   </div>
-                </div>
-              )}
-
-              {jars.length > 0 && (
-                <div>
-                  <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Jars</h2>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                    {jars.map(jar => {
-                      const jarBalances = balances.filter(b => b.account_id === jar.id)
-                      return (
-                        <div key={jar.id} className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
-                          <div className="flex items-center gap-2 mb-3">
-                            <div className="w-8 h-8 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
-                              <PiggyBank size={15} className="text-amber-600" />
-                            </div>
-                            <p className="text-sm font-semibold text-slate-900 truncate">{jar.name}</p>
-                          </div>
-                          {jarBalances.length === 0 ? <p className="text-xs text-slate-400">Geen saldo</p>
-                            : jarBalances.map(b => (
-                              <div key={b.id}>
-                                <p className="text-xl font-semibold text-slate-900">{formatCurrency(b.balance, b.currency)}</p>
-                                <p className="text-xs text-amber-600 font-medium mt-0.5">{b.currency}</p>
-                              </div>
-                            ))}
-                        </div>
-                      )
-                    })}
-                  </div>
-                  {Object.keys(jarBalancesByCurrency).length > 0 && (
-                    <p className="text-xs text-slate-400 mt-2">Totaal in jars: {Object.entries(jarBalancesByCurrency).map(([c, v]) => formatCurrency(v, c)).join(' · ')}</p>
-                  )}
                 </div>
               )}
 
@@ -819,7 +833,15 @@ export default function AdministratiePage() {
                 <select value={filterAccount} onChange={e => setFilterAccount(e.target.value)}
                   className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
                   <option value="">Alle rekeningen</option>
-                  {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  {accountsWithJars.map(({ account, jars: aj }) => aj.length > 0 ? (
+                    <optgroup key={account.id} label={account.name}>
+                      <option value={account.id}>{account.name}</option>
+                      {aj.map(j => <option key={j.id} value={j.id}>↳ {j.name}</option>)}
+                    </optgroup>
+                  ) : (
+                    <option key={account.id} value={account.id}>{account.name}</option>
+                  ))}
+                  {orphanJars.map(j => <option key={j.id} value={j.id}>{j.name}</option>)}
                 </select>
                 <select value={filterType} onChange={e => setFilterType(e.target.value)}
                   className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
@@ -1278,8 +1300,15 @@ export default function AdministratiePage() {
                   <select value={uploadAccount} onChange={e => setUploadAccount(e.target.value)}
                     className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
                     <option value="">Kies een rekening of jar…</option>
-                    {regularAccounts.length > 0 && <optgroup label="Rekeningen">{regularAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</optgroup>}
-                    {jars.length > 0 && <optgroup label="Jars">{jars.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</optgroup>}
+                    {accountsWithJars.map(({ account, jars: aj }) => aj.length > 0 ? (
+                      <optgroup key={account.id} label={account.name}>
+                        <option value={account.id}>{account.name}</option>
+                        {aj.map(j => <option key={j.id} value={j.id}>↳ {j.name}</option>)}
+                      </optgroup>
+                    ) : (
+                      <option key={account.id} value={account.id}>{account.name}</option>
+                    ))}
+                    {orphanJars.map(j => <option key={j.id} value={j.id}>{j.name}</option>)}
                   </select>
                 </div>
                 <div className="space-y-1.5">
@@ -1345,8 +1374,13 @@ export default function AdministratiePage() {
                     <select value={transfer.from_account_id} onChange={e => setTransfer(t => ({ ...t, from_account_id: e.target.value }))}
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
                       <option value="">Kies…</option>
-                      {regularAccounts.length > 0 && <optgroup label="Rekeningen">{regularAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</optgroup>}
-                      {jars.length > 0 && <optgroup label="Jars">{jars.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</optgroup>}
+                      {accountsWithJars.map(({ account, jars: aj }) => aj.length > 0 ? (
+                        <optgroup key={account.id} label={account.name}>
+                          <option value={account.id}>{account.name}</option>
+                          {aj.map(j => <option key={j.id} value={j.id}>↳ {j.name}</option>)}
+                        </optgroup>
+                      ) : <option key={account.id} value={account.id}>{account.name}</option>)}
+                      {orphanJars.map(j => <option key={j.id} value={j.id}>{j.name}</option>)}
                     </select>
                   </div>
                   <div className="space-y-1.5">
@@ -1354,8 +1388,13 @@ export default function AdministratiePage() {
                     <select value={transfer.to_account_id} onChange={e => setTransfer(t => ({ ...t, to_account_id: e.target.value }))}
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
                       <option value="">Kies…</option>
-                      {regularAccounts.length > 0 && <optgroup label="Rekeningen">{regularAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</optgroup>}
-                      {jars.length > 0 && <optgroup label="Jars">{jars.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</optgroup>}
+                      {accountsWithJars.map(({ account, jars: aj }) => aj.length > 0 ? (
+                        <optgroup key={account.id} label={account.name}>
+                          <option value={account.id}>{account.name}</option>
+                          {aj.map(j => <option key={j.id} value={j.id}>↳ {j.name}</option>)}
+                        </optgroup>
+                      ) : <option key={account.id} value={account.id}>{account.name}</option>)}
+                      {orphanJars.map(j => <option key={j.id} value={j.id}>{j.name}</option>)}
                     </select>
                   </div>
                 </div>
