@@ -24,9 +24,12 @@ export async function POST(req: NextRequest) {
   const { name, type, parent_id } = await req.json()
   if (!name || !type) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
 
+  const insertData: Record<string, unknown> = { user_id: user.id, name: name.trim(), type }
+  if (parent_id) insertData.parent_id = parent_id
+
   const { data, error } = await supabase
     .from('admin_categories')
-    .insert({ user_id: user.id, name: name.trim(), type, parent_id: parent_id || null })
+    .insert(insertData)
     .select()
     .single()
 
@@ -42,9 +45,11 @@ export async function PATCH(req: NextRequest) {
   const { id, parent_id } = await req.json()
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
 
+  const updateData: Record<string, unknown> = { parent_id: parent_id || null }
+
   const { data, error } = await supabase
     .from('admin_categories')
-    .update({ parent_id: parent_id || null })
+    .update(updateData)
     .eq('id', id)
     .eq('user_id', user.id)
     .select()
