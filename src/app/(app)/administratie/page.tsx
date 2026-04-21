@@ -89,6 +89,7 @@ function AdministratieInner() {
 
   // Upload
   const [uploadFiles, setUploadFiles] = useState<File[]>([])
+  const [uploadFileAccounts, setUploadFileAccounts] = useState<Record<number, string>>({})
   const [uploadAccount, setUploadAccount] = useState('')
   const [uploadCurrency, setUploadCurrency] = useState('EUR')
   const [uploadCurrencyOverride, setUploadCurrencyOverride] = useState(false)
@@ -563,9 +564,10 @@ function AdministratieInner() {
         })
       }, isPdf ? 400 : 200)
 
+      const fileAccount = uploadFileAccounts[i] || uploadAccount
       const formData = new FormData()
       formData.append('file', file)
-      formData.append('account_id', uploadAccount)
+      formData.append('account_id', fileAccount)
       formData.append('currency', uploadCurrency)
       const res = await fetch('/api/upload', { method: 'POST', body: formData })
       const data = await res.json()
@@ -1400,21 +1402,59 @@ function AdministratieInner() {
                 <h2 className="font-semibold text-slate-900">Bank statement uploaden</h2>
                 <p className="text-sm text-slate-500">Ondersteunde banken: Rabobank, Wise, Revolut (CSV) en OCBC Indonesia (PDF of CSV).</p>
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-slate-600">Rekening of jar <span className="text-red-400">*</span></label>
-                  <select value={uploadAccount} onChange={e => setUploadAccount(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
-                    <option value="">Kies een rekening of jar…</option>
-                    {accountsWithJars.map(({ account, jars: aj }) => aj.length > 0 ? (
-                      <optgroup key={account.id} label={account.name}>
-                        <option value={account.id}>{account.name}</option>
-                        {aj.map(j => <option key={j.id} value={j.id}>↳ {j.name}</option>)}
-                      </optgroup>
-                    ) : (
-                      <option key={account.id} value={account.id}>{account.name}</option>
-                    ))}
-                    {orphanJars.map(j => <option key={j.id} value={j.id}>{j.name}</option>)}
-                  </select>
+                  <label className="text-xs font-medium text-slate-600">Bestanden (CSV of meerdere PDF&apos;s) <span className="text-red-400">*</span></label>
+                  <input type="file" accept=".csv,.txt,.pdf" multiple
+                    onChange={e => { setUploadFiles(e.target.files ? Array.from(e.target.files) : []); setUploadFileAccounts({}) }}
+                    className="w-full text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
                 </div>
+
+                {/* Per-file account assignment (multiple files) or single selector */}
+                {uploadFiles.length > 1 ? (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-slate-600">Wijs elk bestand toe aan een rekening of jar</p>
+                    {uploadFiles.map((f, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <span className={cn('w-1.5 h-1.5 rounded-full shrink-0 mt-0.5', uploading && i === uploadCurrentFile ? 'bg-indigo-500' : uploading && i < uploadCurrentFile ? 'bg-emerald-400' : 'bg-slate-300')} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-slate-500 truncate mb-1">{f.name}</p>
+                          <select
+                            value={uploadFileAccounts[i] ?? ''}
+                            onChange={e => setUploadFileAccounts(prev => ({ ...prev, [i]: e.target.value }))}
+                            className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
+                            <option value="">Kies jar of rekening…</option>
+                            {accountsWithJars.map(({ account, jars: aj }) => aj.length > 0 ? (
+                              <optgroup key={account.id} label={account.name}>
+                                <option value={account.id}>{account.name}</option>
+                                {aj.map(j => <option key={j.id} value={j.id}>↳ {j.name}</option>)}
+                              </optgroup>
+                            ) : (
+                              <option key={account.id} value={account.id}>{account.name}</option>
+                            ))}
+                            {orphanJars.map(j => <option key={j.id} value={j.id}>{j.name}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-slate-600">Rekening of jar <span className="text-red-400">*</span></label>
+                    <select value={uploadAccount} onChange={e => setUploadAccount(e.target.value)}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
+                      <option value="">Kies een rekening of jar…</option>
+                      {accountsWithJars.map(({ account, jars: aj }) => aj.length > 0 ? (
+                        <optgroup key={account.id} label={account.name}>
+                          <option value={account.id}>{account.name}</option>
+                          {aj.map(j => <option key={j.id} value={j.id}>↳ {j.name}</option>)}
+                        </optgroup>
+                      ) : (
+                        <option key={account.id} value={account.id}>{account.name}</option>
+                      ))}
+                      {orphanJars.map(j => <option key={j.id} value={j.id}>{j.name}</option>)}
+                    </select>
+                  </div>
+                )}
+
                 <div>
                   <button type="button" onClick={() => setUploadCurrencyOverride(v => !v)}
                     className="text-xs text-slate-400 hover:text-slate-600 transition-colors">
@@ -1427,23 +1467,12 @@ function AdministratieInner() {
                     </select>
                   )}
                 </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-slate-600">Bestanden (CSV of meerdere PDF&apos;s) <span className="text-red-400">*</span></label>
-                  <input type="file" accept=".csv,.txt,.pdf" multiple
-                    onChange={e => setUploadFiles(e.target.files ? Array.from(e.target.files) : [])}
-                    className="w-full text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
-                  {uploadFiles.length > 1 && (
-                    <ul className="space-y-0.5">
-                      {uploadFiles.map((f, i) => (
-                        <li key={i} className="flex items-center gap-1.5 text-xs text-slate-500">
-                          <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', uploading && i === uploadCurrentFile ? 'bg-indigo-500' : uploading && i < uploadCurrentFile ? 'bg-emerald-400' : 'bg-slate-300')} />
-                          {f.name}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-                <button onClick={handleUpload} disabled={uploadFiles.length === 0 || !uploadAccount || uploading}
+
+                <button onClick={handleUpload}
+                  disabled={uploadFiles.length === 0 || uploading ||
+                    (uploadFiles.length === 1 && !uploadAccount) ||
+                    (uploadFiles.length > 1 && uploadFiles.some((_, i) => !uploadFileAccounts[i]))
+                  }
                   className="w-full flex items-center justify-center gap-2 bg-indigo-500 hover:bg-indigo-600 text-white font-medium py-2.5 rounded-xl text-sm transition-colors disabled:opacity-50">
                   <Upload size={15} />
                   {uploading ? `Verwerken ${uploadCurrentFile + 1}/${uploadFiles.length}…` : uploadFiles.length > 1 ? `${uploadFiles.length} bestanden importeren` : 'Importeren'}
