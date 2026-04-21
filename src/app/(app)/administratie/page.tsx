@@ -54,6 +54,8 @@ function AdministratieInner() {
   const [filterType, setFilterType] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
   const [filterVendor, setFilterVendor] = useState('')
+  const [filterDateFrom, setFilterDateFrom] = useState('')
+  const [filterDateTo, setFilterDateTo] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('date_desc')
   const [txTab, setTxTab] = useState<'draft' | 'processed'>('draft')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -738,6 +740,8 @@ function AdministratieInner() {
     if (filterType && t.type !== filterType) return false
     if (filterCategory && t.category !== filterCategory) return false
     if (filterVendor && t.vendor !== filterVendor) return false
+    if (filterDateFrom && t.date < filterDateFrom) return false
+    if (filterDateTo && t.date > filterDateTo) return false
     if (search && !t.description.toLowerCase().includes(search.toLowerCase())) return false
     return true
   }).sort((a, b) => {
@@ -972,6 +976,21 @@ function AdministratieInner() {
                     )
                   })}
                 </select>
+                <div className="flex items-center gap-1">
+                  <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)}
+                    className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 text-slate-600"
+                    title="Van datum" />
+                  <span className="text-slate-300 text-xs">—</span>
+                  <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)}
+                    className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 text-slate-600"
+                    title="Tot datum" />
+                  {(filterDateFrom || filterDateTo) && (
+                    <button onClick={() => { setFilterDateFrom(''); setFilterDateTo('') }}
+                      className="p-1.5 text-slate-300 hover:text-slate-500 transition-colors" title="Datum filter wissen">
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
                 <div className="relative ml-auto">
                   <ArrowUpDown size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                   <select value={sortKey} onChange={e => setSortKey(e.target.value as SortKey)}
