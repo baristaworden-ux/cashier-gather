@@ -18,7 +18,7 @@ function currencyFromFilename(filename: string): string | null {
   return m ? m[1] : null
 }
 
-async function extractFromPdf(buffer: Buffer, fallbackCurrency: string, filename: string): Promise<ParsedTransaction[]> {
+async function extractFromPdf(buffer: Buffer, fallbackCurrency: string, filename: string): Promise<{ transactions: ParsedTransaction[]; bank: string }> {
   const client = new Anthropic()
   const base64 = buffer.toString('base64')
   const currencyHint = currencyFromFilename(filename) || fallbackCurrency
@@ -38,9 +38,15 @@ async function extractFromPdf(buffer: Buffer, fallbackCurrency: string, filename
           type: 'text',
           text: `This is a bank statement PDF. The primary currency is likely ${currencyHint}.
 
-Extract ALL financial transactions. Return ONLY a raw JSON array — no markdown, no code fences, no explanation. Start with [ and end with ].
+Return a single JSON object — no markdown, no code fences. Format:
+{
+  "bank": "<one of: wise, rabobank, revolut, ocbc, manual>",
+  "transactions": [ ... ]
+}
 
-Each object must have:
+Identify "bank" from the institution name on the statement (e.g. Wise → "wise", OCBC → "ocbc", Rabobank → "rabobank", Revolut → "revolut", anything else → "manual").
+
+Each transaction object must have:
 - date: "YYYY-MM-DD" (convert from any date format you find)
 - description: string (the transaction description/merchant name)
 - amount: number (always a positive number)
@@ -53,36 +59,42 @@ Rules:
 - For OCBC statements: use KREDIT column for income, DEBET column for expenses.
 - For any other bank: use whatever credit/debit columns are present.
 
-Return [] if no transactions are found.`,
+If no transactions are found, return { "bank": "manual", "transactions": [] }.`,
         },
       ],
     }],
   })
 
   const raw = (message.content[0] as { text: string }).text.trim()
-  const jsonMatch = raw.match(/\[[\s\S]*\]/)
-  if (!jsonMatch) return []
+  const objMatch = raw.match(/\{[\s\S]*\}/)
+  if (!objMatch) return { transactions: [], bank: 'manual' }
 
-  let rows: { date: string; description: string; amount: number; type: string; currency?: string }[]
+  let parsed: { bank?: string; transactions?: { date: string; description: string; amount: number; type: string; currency?: string }[] }
   try {
-    rows = JSON.parse(jsonMatch[0])
+    parsed = JSON.parse(objMatch[0])
   } catch {
-    return []
+    return { transactions: [], bank: 'manual' }
   }
 
-  return rows
-    .filter(r => r.date && r.amount > 0)
-    .map(r => {
-      const cur = r.currency || currencyHint
-      return {
-        date: r.date,
-        description: r.description || '—',
-        amount: Math.abs(r.amount),
-        currency: cur,
-        type: r.type === 'income' ? 'income' : 'expense',
-        import_hash: hash(`pdf-${r.date}-${r.description}-${r.amount}-${cur}`),
-      }
-    })
+  const detectedBank = parsed.bank ?? 'manual'
+  const rows = parsed.transactions ?? []
+
+  return {
+    bank: detectedBank,
+    transactions: rows
+      .filter(r => r.date && r.amount > 0)
+      .map(r => {
+        const cur = r.currency || currencyHint
+        return {
+          date: r.date,
+          description: r.description || '—',
+          amount: Math.abs(r.amount),
+          currency: cur,
+          type: r.type === 'income' ? 'income' : 'expense',
+          import_hash: hash(`pdf-${r.date}-${r.description}-${r.amount}-${cur}`),
+        }
+      }),
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -105,15 +117,9 @@ export async function POST(req: NextRequest) {
 
     if (isPdf) {
       const buffer = Buffer.from(await file.arrayBuffer())
-      parsed = await extractFromPdf(buffer, currency, file.name)
-      // Derive bank from the selected account
-      const { data: accData } = await supabase
-        .from('admin_accounts')
-        .select('bank')
-        .eq('id', account_id)
-        .eq('user_id', user.id)
-        .single()
-      bank = accData?.bank ?? 'ocbc'
+      const result = await extractFromPdf(buffer, currency, file.name)
+      parsed = result.transactions
+      bank = result.bank
       if (parsed.length === 0) return NextResponse.json({ error: 'Geen transacties gevonden in het PDF-bestand. Controleer of het een geldig bankafschrift is.' }, { status: 422 })
     } else {
       const csv = await file.text()
