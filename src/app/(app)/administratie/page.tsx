@@ -1000,6 +1000,7 @@ function AdministratieInner() {
                               }}
                             />
                           </th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden sm:table-cell">Bank</th>
                           <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide w-24">Datum</th>
                           <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide w-36 hidden md:table-cell">Leverancier</th>
                           <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Omschrijving</th>
@@ -1029,6 +1030,11 @@ function AdministratieInner() {
                                       return next
                                     })}
                                   />
+                                </td>
+                                <td className="px-4 py-2.5 hidden sm:table-cell">
+                                  <span className={cn('text-xs font-semibold px-2 py-0.5 rounded-md text-white', BANK_COLORS[tx.source] || 'bg-slate-400')}>
+                                    {BANK_LABELS[tx.source] ?? tx.source}
+                                  </span>
                                 </td>
                                 <td className="px-4 py-2.5 text-xs text-slate-500 whitespace-nowrap">{formatDate(tx.date)}</td>
 
@@ -1142,7 +1148,7 @@ function AdministratieInner() {
                               {/* Link panel */}
                               {isLinking && (
                                 <tr key={`${tx.id}-link`} className="bg-indigo-50 border-b border-indigo-100">
-                                  <td colSpan={8} className="px-4 py-3">
+                                  <td colSpan={9} className="px-4 py-3">
                                     <p className="text-xs font-semibold text-indigo-700 mb-2">Koppel aan tegenpost:</p>
                                     {linkCandidates.length === 0
                                       ? <p className="text-xs text-slate-400 italic">Geen kandidaten gevonden binnen 7 dagen op andere rekeningen.</p>
