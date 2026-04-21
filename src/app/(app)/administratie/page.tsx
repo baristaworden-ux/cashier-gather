@@ -88,11 +88,12 @@ function AdministratieInner() {
   const [detailCategorySearch, setDetailCategorySearch] = useState('')
 
   // Upload
-  const [uploadFile, setUploadFile] = useState<File | null>(null)
+  const [uploadFiles, setUploadFiles] = useState<File[]>([])
   const [uploadAccount, setUploadAccount] = useState('')
   const [uploadCurrency, setUploadCurrency] = useState('EUR')
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
+  const [uploadCurrentFile, setUploadCurrentFile] = useState(0)
   const [uploadResult, setUploadResult] = useState<{ imported: number; skipped: number; routed?: Record<string, string> } | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
 
@@ -540,34 +541,50 @@ function AdministratieInner() {
   }
 
   async function handleUpload() {
-    if (!uploadFile || !uploadAccount) return
-    setUploading(true); setUploadResult(null); setUploadError(null); setUploadProgress(0)
+    if (uploadFiles.length === 0 || !uploadAccount) return
+    setUploading(true); setUploadResult(null); setUploadError(null)
 
-    // Simulate progress: crawl to 85% while waiting for the API
-    const isPdf = uploadFile.name.toLowerCase().endsWith('.pdf')
-    const interval = setInterval(() => {
-      setUploadProgress(p => {
-        const ceiling = isPdf ? 82 : 70
-        if (p >= ceiling) return p
-        const step = p < 30 ? 4 : p < 60 ? 2 : 0.5
-        return Math.min(p + step, ceiling)
-      })
-    }, isPdf ? 400 : 200)
+    let totalImported = 0, totalSkipped = 0
+    let combinedRouted: Record<string, string> = {}
+    const errors: string[] = []
 
-    const formData = new FormData()
-    formData.append('file', uploadFile)
-    formData.append('account_id', uploadAccount)
-    formData.append('currency', uploadCurrency)
-    const res = await fetch('/api/upload', { method: 'POST', body: formData })
-    const data = await res.json()
+    for (let i = 0; i < uploadFiles.length; i++) {
+      const file = uploadFiles[i]
+      setUploadCurrentFile(i)
+      setUploadProgress(0)
 
-    clearInterval(interval)
-    setUploadProgress(100)
+      const isPdf = file.name.toLowerCase().endsWith('.pdf')
+      const interval = setInterval(() => {
+        setUploadProgress(p => {
+          const ceiling = isPdf ? 82 : 70
+          if (p >= ceiling) return p
+          return Math.min(p + (p < 30 ? 4 : p < 60 ? 2 : 0.5), ceiling)
+        })
+      }, isPdf ? 400 : 200)
 
-    if (res.ok) { setUploadResult(data); await loadData() }
-    else setUploadError(data.error || 'Er is een fout opgetreden.')
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('account_id', uploadAccount)
+      formData.append('currency', uploadCurrency)
+      const res = await fetch('/api/upload', { method: 'POST', body: formData })
+      const data = await res.json()
+      clearInterval(interval)
+      setUploadProgress(100)
 
-    setTimeout(() => { setUploading(false); setUploadProgress(0) }, 600)
+      if (res.ok) {
+        totalImported += data.imported || 0
+        totalSkipped += data.skipped || 0
+        if (data.routed) combinedRouted = { ...combinedRouted, ...data.routed }
+      } else {
+        errors.push(`${file.name}: ${data.error || 'Fout'}`)
+      }
+      await new Promise(r => setTimeout(r, 300))
+    }
+
+    await loadData()
+    setUploadResult({ imported: totalImported, skipped: totalSkipped, routed: combinedRouted })
+    if (errors.length > 0) setUploadError(errors.join('\n'))
+    setTimeout(() => { setUploading(false); setUploadProgress(0); setUploadCurrentFile(0) }, 600)
   }
 
   async function categorizeAll() {
@@ -1405,19 +1422,30 @@ function AdministratieInner() {
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-slate-600">Bestand (CSV, PDF of .data) <span className="text-red-400">*</span></label>
-                  <input type="file" accept=".csv,.txt,.pdf,.data" onChange={e => setUploadFile(e.target.files?.[0] ?? null)}
+                  <label className="text-xs font-medium text-slate-600">Bestanden (CSV of meerdere PDF's) <span className="text-red-400">*</span></label>
+                  <input type="file" accept=".csv,.txt,.pdf" multiple
+                    onChange={e => setUploadFiles(e.target.files ? Array.from(e.target.files) : [])}
                     className="w-full text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
+                  {uploadFiles.length > 1 && (
+                    <ul className="space-y-0.5">
+                      {uploadFiles.map((f, i) => (
+                        <li key={i} className="flex items-center gap-1.5 text-xs text-slate-500">
+                          <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', uploading && i === uploadCurrentFile ? 'bg-indigo-500' : uploading && i < uploadCurrentFile ? 'bg-emerald-400' : 'bg-slate-300')} />
+                          {f.name}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
-                <button onClick={handleUpload} disabled={!uploadFile || !uploadAccount || uploading}
+                <button onClick={handleUpload} disabled={uploadFiles.length === 0 || !uploadAccount || uploading}
                   className="w-full flex items-center justify-center gap-2 bg-indigo-500 hover:bg-indigo-600 text-white font-medium py-2.5 rounded-xl text-sm transition-colors disabled:opacity-50">
                   <Upload size={15} />
-                  {uploading ? 'Uploaden…' : 'Importeren'}
+                  {uploading ? `Verwerken ${uploadCurrentFile + 1}/${uploadFiles.length}…` : uploadFiles.length > 1 ? `${uploadFiles.length} bestanden importeren` : 'Importeren'}
                 </button>
                 {uploading && (
                   <div className="space-y-1.5">
                     <div className="flex justify-between text-xs text-slate-500">
-                      <span>{uploadProgress < 100 ? (uploadFile?.name.toLowerCase().endsWith('.pdf') ? 'PDF verwerken via AI…' : 'Bestand verwerken…') : 'Klaar!'}</span>
+                      <span>{uploadProgress < 100 ? `${uploadFiles[uploadCurrentFile]?.name ?? ''} — PDF verwerken via AI…` : 'Klaar!'}</span>
                       <span>{Math.round(uploadProgress)}%</span>
                     </div>
                     <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
