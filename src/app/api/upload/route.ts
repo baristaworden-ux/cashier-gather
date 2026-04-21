@@ -75,7 +75,8 @@ export async function POST(req: NextRequest) {
 
     if (!file || !account_id) return NextResponse.json({ error: 'Missing file or account_id' }, { status: 400 })
 
-    const isPdf = file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf'
+    const name = file.name.toLowerCase()
+    const isPdf = name.endsWith('.pdf') || file.type === 'application/pdf'
 
     let parsed: ParsedTransaction[]
     let bank: string

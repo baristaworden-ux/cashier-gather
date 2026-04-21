@@ -1405,8 +1405,8 @@ function AdministratieInner() {
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-slate-600">Bestand (CSV of PDF) <span className="text-red-400">*</span></label>
-                  <input type="file" accept=".csv,.txt,.pdf" onChange={e => setUploadFile(e.target.files?.[0] ?? null)}
+                  <label className="text-xs font-medium text-slate-600">Bestand (CSV, PDF of .data) <span className="text-red-400">*</span></label>
+                  <input type="file" accept=".csv,.txt,.pdf,.data" onChange={e => setUploadFile(e.target.files?.[0] ?? null)}
                     className="w-full text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
                 </div>
                 <button onClick={handleUpload} disabled={!uploadFile || !uploadAccount || uploading}
