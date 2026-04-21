@@ -92,6 +92,8 @@ function AdministratieInner() {
   // Upload
   const [uploadFiles, setUploadFiles] = useState<File[]>([])
   const [uploadFileAccounts, setUploadFileAccounts] = useState<Record<number, string>>({})
+  const [uploadFileDetected, setUploadFileDetected] = useState<Record<number, string>>({})
+  const [detecting, setDetecting] = useState(false)
   const [uploadAccount, setUploadAccount] = useState('')
   const [uploadCurrency, setUploadCurrency] = useState('EUR')
   const [uploadCurrencyOverride, setUploadCurrencyOverride] = useState(false)
@@ -590,6 +592,33 @@ function AdministratieInner() {
     setUploadResult({ imported: totalImported, skipped: totalSkipped, routed: combinedRouted })
     if (errors.length > 0) setUploadError(errors.join('\n'))
     setTimeout(() => { setUploading(false); setUploadProgress(0); setUploadCurrentFile(0) }, 600)
+  }
+
+  async function detectPdfAccounts(files: File[]) {
+    const pdfs = files.filter(f => f.name.toLowerCase().endsWith('.pdf'))
+    if (pdfs.length === 0) return
+    setDetecting(true)
+    const detectedNames: Record<number, string> = {}
+    const autoAssigned: Record<number, string> = {}
+    await Promise.all(pdfs.map(async (file) => {
+      const idx = files.indexOf(file)
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch('/api/detect-pdf-account', { method: 'POST', body: fd })
+      if (!res.ok) return
+      const { name } = await res.json()
+      if (!name) return
+      detectedNames[idx] = name
+      // Match against jar/account names (case-insensitive substring)
+      const lower = name.toLowerCase()
+      const match = accounts.find(a =>
+        lower.includes(a.name.toLowerCase()) || a.name.toLowerCase().includes(lower)
+      )
+      if (match) autoAssigned[idx] = match.id
+    }))
+    setUploadFileDetected(detectedNames)
+    setUploadFileAccounts(autoAssigned)
+    setDetecting(false)
   }
 
   async function categorizeAll() {
@@ -1423,19 +1452,35 @@ function AdministratieInner() {
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-slate-600">Bestanden (CSV of meerdere PDF&apos;s) <span className="text-red-400">*</span></label>
                   <input type="file" accept=".csv,.txt,.pdf" multiple
-                    onChange={e => { setUploadFiles(e.target.files ? Array.from(e.target.files) : []); setUploadFileAccounts({}) }}
+                    onChange={e => {
+                      const files = e.target.files ? Array.from(e.target.files) : []
+                      setUploadFiles(files)
+                      setUploadFileAccounts({})
+                      setUploadFileDetected({})
+                      if (files.length > 1) detectPdfAccounts(files)
+                    }}
                     className="w-full text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
                 </div>
 
                 {/* Per-file account assignment (multiple files) or single selector */}
                 {uploadFiles.length > 1 ? (
                   <div className="space-y-2">
+                    <div className="flex items-center justify-between">
                     <p className="text-xs font-medium text-slate-600">Wijs elk bestand toe aan een rekening of jar</p>
+                    {detecting && <span className="text-xs text-indigo-500 animate-pulse">Herkennen…</span>}
+                  </div>
                     {uploadFiles.map((f, i) => (
                       <div key={i} className="flex items-center gap-2">
                         <span className={cn('w-1.5 h-1.5 rounded-full shrink-0 mt-0.5', uploading && i === uploadCurrentFile ? 'bg-indigo-500' : uploading && i < uploadCurrentFile ? 'bg-emerald-400' : 'bg-slate-300')} />
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs text-slate-500 truncate mb-1">{f.name}</p>
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <p className="text-xs text-slate-500 truncate">{f.name}</p>
+                            {uploadFileDetected[i] && (
+                              <span className={cn('text-xs px-1.5 py-0.5 rounded font-medium shrink-0', uploadFileAccounts[i] ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700')}>
+                                {uploadFileAccounts[i] ? '✓' : '?'} {uploadFileDetected[i]}
+                              </span>
+                            )}
+                          </div>
                           <select
                             value={uploadFileAccounts[i] ?? ''}
                             onChange={e => setUploadFileAccounts(prev => ({ ...prev, [i]: e.target.value }))}
