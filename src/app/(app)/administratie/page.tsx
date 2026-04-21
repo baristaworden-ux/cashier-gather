@@ -91,6 +91,7 @@ function AdministratieInner() {
   const [uploadFiles, setUploadFiles] = useState<File[]>([])
   const [uploadAccount, setUploadAccount] = useState('')
   const [uploadCurrency, setUploadCurrency] = useState('EUR')
+  const [uploadCurrencyOverride, setUploadCurrencyOverride] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [uploadCurrentFile, setUploadCurrentFile] = useState(0)
@@ -1414,12 +1415,17 @@ function AdministratieInner() {
                     {orphanJars.map(j => <option key={j.id} value={j.id}>{j.name}</option>)}
                   </select>
                 </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-slate-600">Valuta (voor OCBC / jar)</label>
-                  <select value={uploadCurrency} onChange={e => setUploadCurrency(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
-                    {CURRENCIES.map(c => <option key={c}>{c}</option>)}
-                  </select>
+                <div>
+                  <button type="button" onClick={() => setUploadCurrencyOverride(v => !v)}
+                    className="text-xs text-slate-400 hover:text-slate-600 transition-colors">
+                    {uploadCurrencyOverride ? '▾ Valuta verbergen' : '▸ Valuta overschrijven (alleen voor OCBC CSV)'}
+                  </button>
+                  {uploadCurrencyOverride && (
+                    <select value={uploadCurrency} onChange={e => setUploadCurrency(e.target.value)}
+                      className="mt-1.5 w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
+                      {CURRENCIES.map(c => <option key={c}>{c}</option>)}
+                    </select>
+                  )}
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-slate-600">Bestanden (CSV of meerdere PDF&apos;s) <span className="text-red-400">*</span></label>
