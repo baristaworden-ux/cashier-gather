@@ -1422,7 +1422,7 @@ function AdministratieInner() {
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-slate-600">Bestanden (CSV of meerdere PDF's) <span className="text-red-400">*</span></label>
+                  <label className="text-xs font-medium text-slate-600">Bestanden (CSV of meerdere PDF&apos;s) <span className="text-red-400">*</span></label>
                   <input type="file" accept=".csv,.txt,.pdf" multiple
                     onChange={e => setUploadFiles(e.target.files ? Array.from(e.target.files) : [])}
                     className="w-full text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
