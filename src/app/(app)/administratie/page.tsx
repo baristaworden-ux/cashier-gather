@@ -10,6 +10,10 @@ const BANK_LABELS: Record<string, string> = {
   rabobank: 'Rabobank', wise: 'Wise', revolut: 'Revolut',
   ocbc: 'OCBC Indonesia', manual: 'Handmatig',
 }
+const BANK_SHORT: Record<string, string> = {
+  rabobank: 'Rabobank', wise: 'Wise', revolut: 'Revolut',
+  ocbc: 'OCBC', manual: 'Handmatig',
+}
 const BANK_COLORS: Record<string, string> = {
   rabobank: 'bg-orange-500', wise: 'bg-green-500', revolut: 'bg-violet-500',
   ocbc: 'bg-red-500', manual: 'bg-slate-400',
@@ -1032,8 +1036,8 @@ function AdministratieInner() {
                                   />
                                 </td>
                                 <td className="px-4 py-2.5 hidden sm:table-cell">
-                                  <span className={cn('text-xs font-semibold px-2 py-0.5 rounded-md text-white', BANK_COLORS[tx.source] || 'bg-slate-400')}>
-                                    {BANK_LABELS[tx.source] ?? tx.source}
+                                  <span className="text-xs text-slate-500">
+                                    {BANK_SHORT[tx.source] ?? tx.source}
                                   </span>
                                 </td>
                                 <td className="px-4 py-2.5 text-xs text-slate-500 whitespace-nowrap">{formatDate(tx.date)}</td>
