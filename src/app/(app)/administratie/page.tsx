@@ -985,8 +985,8 @@ function AdministratieInner() {
               {filtered.length === 0
                 ? <p className="text-sm text-slate-400 italic text-center py-12">Geen transacties gevonden.</p>
                 : (
-                  <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden" ref={linkRef}>
-                    <table className="w-full text-sm">
+                  <div className="bg-white border border-slate-200 rounded-2xl overflow-x-auto" ref={linkRef}>
+                    <table className="w-full min-w-[640px] text-sm">
                       <thead>
                         <tr className="border-b border-slate-100">
                           <th className="w-10 px-3 py-3">
@@ -1006,7 +1006,7 @@ function AdministratieInner() {
                           <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden md:table-cell">Categorie</th>
                           <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden lg:table-cell w-32">Koppeling</th>
                           <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Bedrag</th>
-                          <th className="w-24" />
+                          <th className="w-32 pr-4" />
                         </tr>
                       </thead>
                       <tbody>
@@ -1108,7 +1108,7 @@ function AdministratieInner() {
                                   {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : tx.type === 'investment' ? '↗' : tx.type === 'advance' ? '⟳' : ''}
                                   {formatCurrency(tx.amount, tx.currency)}
                                 </td>
-                                <td className="px-2 py-2.5">
+                                <td className="pl-2 pr-4 py-2.5">
                                   <div className="flex items-center gap-1 justify-end">
                                     {txTab === 'draft' ? (
                                       <>
