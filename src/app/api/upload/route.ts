@@ -12,9 +12,16 @@ function hash(str: string): string {
   return Math.abs(h).toString(36)
 }
 
-async function extractOCBCFromPdf(buffer: Buffer, currency: string): Promise<ParsedTransaction[]> {
+// Extract currency hint from filename e.g. "statement_123_EUR_2026-01-01.pdf" → "EUR"
+function currencyFromFilename(filename: string): string | null {
+  const m = filename.match(/[_\-]([A-Z]{3})[_\-\.]/)
+  return m ? m[1] : null
+}
+
+async function extractFromPdf(buffer: Buffer, fallbackCurrency: string, filename: string): Promise<ParsedTransaction[]> {
   const client = new Anthropic()
   const base64 = buffer.toString('base64')
+  const currencyHint = currencyFromFilename(filename) || fallbackCurrency
 
   const message = await client.beta.messages.create({
     model: 'claude-haiku-4-5-20251001',
@@ -29,18 +36,24 @@ async function extractOCBCFromPdf(buffer: Buffer, currency: string): Promise<Par
         },
         {
           type: 'text',
-          text: `This is an OCBC Indonesia bank statement. It may contain multiple currency sections (e.g. IDR, EUR, CHF), each starting with "Currency Code : XXX".
+          text: `This is a bank statement PDF. The primary currency is likely ${currencyHint}.
 
-Extract ALL transactions from ALL currency sections. Return ONLY a raw JSON array — no markdown, no code fences, no explanation. Start with [ and end with ].
+Extract ALL financial transactions. Return ONLY a raw JSON array — no markdown, no code fences, no explanation. Start with [ and end with ].
 
 Each object must have:
-- date: "YYYY-MM-DD" (convert from DD/MM/YYYY format)
-- description: string (main description line; append the "Berita:" note if present, separated by " - ")
-- amount: number (always positive; use the non-zero value from DEBET or KREDIT column)
-- type: "income" if KREDIT > 0, "expense" if DEBET > 0
-- currency: the currency code for that section ("IDR", "EUR", "CHF", etc.)
+- date: "YYYY-MM-DD" (convert from any date format you find)
+- description: string (the transaction description/merchant name)
+- amount: number (always a positive number)
+- type: "income" if money came IN (deposit/credit/kredit), "expense" if money went OUT (withdrawal/debit/debet)
+- currency: the currency code (e.g. "EUR", "IDR", "CHF"). Use the section currency if multiple sections exist, otherwise use "${currencyHint}".
 
-Skip these rows: Beginning Balance, closing balance summary, JASA REKENING/ACCOUNT INTEREST, PAJAK/TAX, and any row where both DEBET and KREDIT are 0.00.`,
+Rules:
+- If the statement has multiple currency sections (e.g. "Currency Code : EUR"), extract ALL sections.
+- Skip rows that are: opening/closing balance, interest charges, tax rows, or rows where both debit and credit are 0.
+- For OCBC statements: use KREDIT column for income, DEBET column for expenses.
+- For any other bank: use whatever credit/debit columns are present.
+
+Return [] if no transactions are found.`,
         },
       ],
     }],
@@ -50,16 +63,26 @@ Skip these rows: Beginning Balance, closing balance summary, JASA REKENING/ACCOU
   const jsonMatch = raw.match(/\[[\s\S]*\]/)
   if (!jsonMatch) return []
 
-  const rows: { date: string; description: string; amount: number; type: string; currency?: string }[] = JSON.parse(jsonMatch[0])
+  let rows: { date: string; description: string; amount: number; type: string; currency?: string }[]
+  try {
+    rows = JSON.parse(jsonMatch[0])
+  } catch {
+    return []
+  }
 
-  return rows.map(r => ({
-    date: r.date,
-    description: r.description,
-    amount: Math.abs(r.amount),
-    currency: r.currency || currency,
-    type: r.type === 'income' ? 'income' : 'expense',
-    import_hash: hash(`ocbc-pdf-${r.date}-${r.description}-${r.amount}-${r.currency || currency}`),
-  }))
+  return rows
+    .filter(r => r.date && r.amount > 0)
+    .map(r => {
+      const cur = r.currency || currencyHint
+      return {
+        date: r.date,
+        description: r.description || '—',
+        amount: Math.abs(r.amount),
+        currency: cur,
+        type: r.type === 'income' ? 'income' : 'expense',
+        import_hash: hash(`pdf-${r.date}-${r.description}-${r.amount}-${cur}`),
+      }
+    })
 }
 
 export async function POST(req: NextRequest) {
@@ -82,9 +105,16 @@ export async function POST(req: NextRequest) {
 
     if (isPdf) {
       const buffer = Buffer.from(await file.arrayBuffer())
-      parsed = await extractOCBCFromPdf(buffer, currency)
-      bank = 'ocbc'
-      if (parsed.length === 0) return NextResponse.json({ error: 'Geen transacties gevonden in het PDF-bestand. Controleer of het een geldig OCBC-afschrift is.' }, { status: 422 })
+      parsed = await extractFromPdf(buffer, currency, file.name)
+      // Derive bank from the selected account
+      const { data: accData } = await supabase
+        .from('admin_accounts')
+        .select('bank')
+        .eq('id', account_id)
+        .eq('user_id', user.id)
+        .single()
+      bank = accData?.bank ?? 'ocbc'
+      if (parsed.length === 0) return NextResponse.json({ error: 'Geen transacties gevonden in het PDF-bestand. Controleer of het een geldig bankafschrift is.' }, { status: 422 })
     } else {
       const csv = await file.text()
       const detectedBank = detectBank(csv)
@@ -109,8 +139,7 @@ export async function POST(req: NextRequest) {
       return null
     }
 
-    // For PDF uploads: auto-route transactions to matching accounts/jars by currency.
-    // Load all user accounts for this bank and build a currency → account_id map.
+    // Build currency → account_id routing map from all user accounts for this bank
     const currencyToAccount: Record<string, string> = { [currency]: account_id }
     if (isPdf) {
       const { data: allAccounts } = await supabase
@@ -133,7 +162,7 @@ export async function POST(req: NextRequest) {
 
     let totalImported = 0
     let totalSkipped = 0
-    const routedTo: Record<string, string> = {} // currency → account_id, for response info
+    const routedTo: Record<string, string> = {}
 
     for (const [targetAccountId, txs] of Object.entries(byAccount)) {
       const { data: existing } = await supabase
@@ -165,8 +194,16 @@ export async function POST(req: NextRequest) {
 
       if (toInsert.length > 0) {
         const { error } = await supabase.from('admin_transactions').insert(toInsert)
-        if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-        totalImported += toInsert.length
+        if (error) {
+          // Duplicate key means these were already imported — count as skipped, not an error
+          if (error.message.includes('duplicate key') || error.code === '23505') {
+            totalSkipped += toInsert.length
+          } else {
+            return NextResponse.json({ error: error.message }, { status: 500 })
+          }
+        } else {
+          totalImported += toInsert.length
+        }
       }
     }
 
