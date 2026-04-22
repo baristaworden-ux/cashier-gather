@@ -18,6 +18,30 @@ function currencyFromFilename(filename: string): string | null {
   return m ? m[1] : null
 }
 
+function extractJson(raw: string): { bank?: string; transactions?: unknown[] } | unknown[] | null {
+  // Strip markdown code fences
+  const cleaned = raw.replace(/```(?:json)?\s*/g, '').replace(/```/g, '').trim()
+
+  // Try object format first { bank, transactions }
+  const objStart = cleaned.indexOf('{')
+  const objEnd = cleaned.lastIndexOf('}')
+  if (objStart !== -1 && objEnd > objStart) {
+    try {
+      const obj = JSON.parse(cleaned.slice(objStart, objEnd + 1))
+      if (obj && typeof obj === 'object' && !Array.isArray(obj)) return obj
+    } catch {}
+  }
+
+  // Fallback: plain array
+  const arrStart = cleaned.indexOf('[')
+  const arrEnd = cleaned.lastIndexOf(']')
+  if (arrStart !== -1 && arrEnd > arrStart) {
+    try { return JSON.parse(cleaned.slice(arrStart, arrEnd + 1)) } catch {}
+  }
+
+  return null
+}
+
 async function extractFromPdf(buffer: Buffer, fallbackCurrency: string, filename: string): Promise<{ transactions: ParsedTransaction[]; bank: string }> {
   const client = new Anthropic()
   const base64 = buffer.toString('base64')
@@ -36,48 +60,51 @@ async function extractFromPdf(buffer: Buffer, fallbackCurrency: string, filename
         },
         {
           type: 'text',
-          text: `This is a bank statement PDF. The primary currency is likely ${currencyHint}.
+          text: `Extract all transactions from this bank statement PDF.
 
-Return a single JSON object — no markdown, no code fences. Format:
-{
-  "bank": "<one of: wise, rabobank, revolut, ocbc, manual>",
-  "transactions": [ ... ]
-}
-
-Identify "bank" from the institution name on the statement (e.g. Wise → "wise", OCBC → "ocbc", Rabobank → "rabobank", Revolut → "revolut", anything else → "manual").
-
-Each transaction object must have:
-- date: "YYYY-MM-DD" (convert from any date format you find)
-- description: string (the transaction description/merchant name)
-- amount: number (always a positive number)
-- type: "income" if money came IN (deposit/credit/kredit), "expense" if money went OUT (withdrawal/debit/debet)
-- currency: the currency code (e.g. "EUR", "IDR", "CHF"). Use the section currency if multiple sections exist, otherwise use "${currencyHint}".
+Return ONLY this JSON structure, no markdown, no explanation:
+{"bank":"wise","transactions":[{"date":"YYYY-MM-DD","description":"...","amount":1.23,"type":"expense","currency":"EUR"}]}
 
 Rules:
-- If the statement has multiple currency sections (e.g. "Currency Code : EUR"), extract ALL sections.
-- Skip rows that are: opening/closing balance, interest charges, tax rows, or rows where both debit and credit are 0.
-- For OCBC statements: use KREDIT column for income, DEBET column for expenses.
-- For any other bank: use whatever credit/debit columns are present.
+- "bank": detect from institution name → "wise", "rabobank", "revolut", "ocbc", or "manual"
+- "date": convert any date format to YYYY-MM-DD
+- "description": the merchant or counterparty name
+- "amount": always a positive number
+- "type": "income" if Incoming/Credit/Kredit column has a value, "expense" if Outgoing/Debit/Debet has a value
+- "currency": use ${currencyHint} unless the statement shows a different currency per transaction
 
-If no transactions are found, return { "bank": "manual", "transactions": [] }.`,
+For Wise PDFs specifically:
+- The table has columns: Description | Incoming | Outgoing | Amount (running balance)
+- Use the Incoming/Outgoing values — NOT the Amount column (that is just the balance)
+- "Moved X from/to [jar]" rows are internal balance moves — skip them
+- "Cashback" rows are income
+- Currency is ${currencyHint}
+
+For OCBC PDFs:
+- Sections start with "Currency Code : XXX" — extract all sections with their respective currency
+- KREDIT = income, DEBET = expense
+
+Skip: opening/closing balance rows, interest/tax rows, rows where both sides are 0.`,
         },
       ],
     }],
   })
 
   const raw = (message.content[0] as { text: string }).text.trim()
-  const objMatch = raw.match(/\{[\s\S]*\}/)
-  if (!objMatch) return { transactions: [], bank: 'manual' }
+  const parsed = extractJson(raw)
+  if (!parsed) return { transactions: [], bank: 'manual' }
 
-  let parsed: { bank?: string; transactions?: { date: string; description: string; amount: number; type: string; currency?: string }[] }
-  try {
-    parsed = JSON.parse(objMatch[0])
-  } catch {
-    return { transactions: [], bank: 'manual' }
+  type TxRow = { date: string; description: string; amount: number; type: string; currency?: string }
+  let detectedBank = 'manual'
+  let rows: TxRow[] = []
+
+  if (Array.isArray(parsed)) {
+    rows = parsed as TxRow[]
+  } else {
+    const obj = parsed as { bank?: string; transactions?: TxRow[] }
+    detectedBank = obj.bank ?? 'manual'
+    rows = obj.transactions ?? []
   }
-
-  const detectedBank = parsed.bank ?? 'manual'
-  const rows = parsed.transactions ?? []
 
   return {
     bank: detectedBank,
