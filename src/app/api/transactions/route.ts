@@ -52,16 +52,14 @@ export async function DELETE(req: NextRequest) {
   const id = new URL(req.url).searchParams.get('id')
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
 
-  // Only allow deleting draft transactions
   const { data: tx } = await supabase
     .from('admin_transactions')
-    .select('status')
+    .select('id')
     .eq('id', id)
     .eq('user_id', user.id)
     .single()
 
   if (!tx) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (tx.status !== 'draft') return NextResponse.json({ error: 'Only draft transactions can be deleted' }, { status: 403 })
 
   const { error } = await supabase
     .from('admin_transactions')

@@ -469,8 +469,9 @@ function AdministratieInner() {
 
   async function bulkDelete() {
     const ids = Array.from(selectedIds)
-    await Promise.all(ids.map(id => fetch(`/api/transactions?id=${id}`, { method: 'DELETE' })))
-    setTransactions(txs => txs.filter(t => !selectedIds.has(t.id)))
+    const results = await Promise.all(ids.map(id => fetch(`/api/transactions?id=${id}`, { method: 'DELETE' }).then(r => ({ id, ok: r.ok }))))
+    const deleted = new Set(results.filter(r => r.ok).map(r => r.id))
+    setTransactions(txs => txs.filter(t => !deleted.has(t.id)))
     setSelectedIds(new Set())
   }
 
