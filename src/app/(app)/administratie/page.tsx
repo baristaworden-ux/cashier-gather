@@ -1198,6 +1198,7 @@ function AdministratieInner() {
                             return (
                               <>
                                 <SortTh label="Bank" asc="bank_asc" desc="bank_desc" className="hidden sm:table-cell" />
+                                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden md:table-cell w-28">Jar</th>
                                 <SortTh label="Type" asc="type_asc" desc="type_desc" className="hidden md:table-cell" />
                                 <SortTh label="Datum" asc="date_asc" desc="date_desc" className="w-24" />
                                 <SortTh label="Leverancier" asc="vendor_asc" desc="vendor_desc" className="w-36 hidden md:table-cell" />
@@ -1236,6 +1237,18 @@ function AdministratieInner() {
                                   <span className="text-xs text-slate-500">
                                     {BANK_SHORT[tx.source] ?? tx.source}
                                   </span>
+                                </td>
+                                <td className="px-4 py-2.5 hidden md:table-cell">
+                                  {(() => {
+                                    const acc = accountMap[tx.account_id]
+                                    if (acc?.account_type !== 'jar') return null
+                                    return (
+                                      <span className="flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full w-fit">
+                                        <PiggyBank size={10} className="shrink-0" />
+                                        <span className="truncate max-w-[80px]">{acc.name}</span>
+                                      </span>
+                                    )
+                                  })()}
                                 </td>
                                 <td className="px-4 py-2.5 hidden md:table-cell">
                                   {(() => {
@@ -1365,7 +1378,7 @@ function AdministratieInner() {
                               {/* Link panel */}
                               {isLinking && (
                                 <tr key={`${tx.id}-link`} className="bg-indigo-50 border-b border-indigo-100">
-                                  <td colSpan={9} className="px-4 py-3">
+                                  <td colSpan={10} className="px-4 py-3">
                                     <p className="text-xs font-semibold text-indigo-700 mb-2">Koppel aan tegenpost:</p>
                                     {linkLoading ? (
                                       <p className="text-xs text-slate-400 italic">Zoeken…</p>
