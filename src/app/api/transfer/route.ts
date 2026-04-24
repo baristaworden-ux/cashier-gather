@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
   })
   if (err1) return NextResponse.json({ error: err1.message }, { status: 500 })
 
-  // Credit on destination account
+  // Credit on destination account — type 'income' so updateBalance adds it correctly
   const { error: err2 } = await supabase.from('admin_transactions').insert({
     user_id: user.id,
     account_id: to_account_id,
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
     original_description: desc,
     amount: to_amount,
     currency: to_currency,
-    type: 'transfer',
+    type: 'income',
     category: 'Overboekingen',
     notes: `Koers: 1 ${from_currency} = ${exchange_rate} ${to_currency}`,
     ai_categorized: false,
