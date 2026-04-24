@@ -63,23 +63,21 @@ async function extractFromPdf(buffer: Buffer, fallbackCurrency: string, filename
           text: `Extract all transactions from this bank statement PDF.
 
 Return ONLY this JSON structure, no markdown, no explanation:
-{"bank":"wise","transactions":[{"date":"YYYY-MM-DD","description":"...","amount":1.23,"type":"expense","currency":"EUR"}]}
+{"bank":"wise","transactions":[{"date":"YYYY-MM-DD","description":"...","amount":1.23,"type":"expense","currency":"EUR","tx_id":"BALANCE-1234567"}]}
 
 Rules:
 - "bank": detect from institution name → "wise", "rabobank", "revolut", "ocbc", or "manual"
 - "date": convert any date format to YYYY-MM-DD
-- "description": the merchant or counterparty name
+- "description": the description as shown (e.g. "Moved 100.00 EUR from EUR", "Cashback", "Topped up account")
 - "amount": always a positive number
 - "type": "income" if Incoming/Credit/Kredit column has a value, "expense" if Outgoing/Debit/Debet has a value
 - "currency": use ${currencyHint} unless the statement shows a different currency per transaction
+- "tx_id": the transaction ID shown below the description (e.g. "TRANSFER-1986649777", "BALANCE-4763045976") — omit if not present
 
 For Wise PDFs specifically:
 - The table has columns: Description | Incoming | Outgoing | Amount (running balance)
 - Use the Incoming/Outgoing values — NOT the Amount column (that is just the balance)
-- SKIP any row whose description starts with "Moved" — these are internal jar transfers, not real transactions
-- SKIP any row whose Transaction ID starts with "BALANCE-" (format: "Transaction: BALANCE-XXXXXXXXX")
-- "Topped up account" rows are real deposits (income) — keep them
-- "Cashback" rows are income — keep them
+- Include ALL rows: "Moved X from/to EUR", "Topped up account", "Cashback" — everything counts
 - Outgoing values may appear as negative numbers (e.g. -11.00) — treat them as positive expense amounts
 - Currency is ${currencyHint}
 
@@ -87,7 +85,7 @@ For OCBC PDFs:
 - Sections start with "Currency Code : XXX" — extract all sections with their respective currency
 - KREDIT = income, DEBET = expense
 
-Skip: opening/closing balance rows, interest/tax rows, rows where both sides are 0.`,
+Skip: opening/closing balance rows, interest/tax rows, rows where both Incoming and Outgoing are 0.`,
         },
       ],
     }],
@@ -97,7 +95,7 @@ Skip: opening/closing balance rows, interest/tax rows, rows where both sides are
   const parsed = extractJson(raw)
   if (!parsed) return { transactions: [], bank: 'manual' }
 
-  type TxRow = { date: string; description: string; amount: number; type: string; currency?: string }
+  type TxRow = { date: string; description: string; amount: number; type: string; currency?: string; tx_id?: string }
   let detectedBank = 'manual'
   let rows: TxRow[] = []
 
@@ -112,16 +110,17 @@ Skip: opening/closing balance rows, interest/tax rows, rows where both sides are
   return {
     bank: detectedBank,
     transactions: rows
-      .filter(r => r.date && r.amount !== 0 && !r.description?.toLowerCase().startsWith('moved '))
+      .filter(r => r.date && r.amount !== 0)
       .map(r => {
         const cur = r.currency || currencyHint
+        const hashKey = r.tx_id ? `pdf-${r.tx_id}-${cur}` : `pdf-${r.date}-${r.description}-${r.amount}-${cur}`
         return {
           date: r.date,
           description: r.description || '—',
           amount: Math.abs(r.amount),
           currency: cur,
           type: r.type === 'income' ? 'income' : 'expense',
-          import_hash: hash(`pdf-${r.date}-${r.description}-${r.amount}-${cur}`),
+          import_hash: hash(hashKey),
         }
       }),
   }
