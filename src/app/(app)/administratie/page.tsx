@@ -548,7 +548,9 @@ function AdministratieInner() {
   }
 
   async function handleUpload() {
-    if (uploadFiles.length === 0 || !uploadAccount) return
+    if (uploadFiles.length === 0) return
+    if (uploadFiles.length === 1 && !uploadAccount) return
+    if (uploadFiles.length > 1 && uploadFiles.some((_, i) => !uploadFileAccounts[i])) return
     setUploading(true); setUploadResult(null); setUploadError(null)
 
     let totalImported = 0, totalSkipped = 0
