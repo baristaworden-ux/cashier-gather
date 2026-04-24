@@ -208,6 +208,8 @@ export async function POST(req: NextRequest) {
     let totalImported = 0
     let totalSkipped = 0
     const routedTo: Record<string, string> = {}
+    type SkippedDetail = { date: string; description: string; amount: number; currency: string; account_id: string; reason: 'exists_in_db' }
+    const skippedDetails: SkippedDetail[] = []
 
     for (const [targetAccountId, txs] of Object.entries(byAccount)) {
       const { data: existing } = await supabase
@@ -216,6 +218,16 @@ export async function POST(req: NextRequest) {
         .eq('account_id', targetAccountId)
 
       const existingHashes = new Set((existing || []).map((r: { import_hash: string }) => r.import_hash))
+
+      const skippedHere = txs.filter(t => existingHashes.has(t.import_hash))
+      skippedDetails.push(...skippedHere.map(t => ({
+        date: t.date,
+        description: t.description,
+        amount: t.amount,
+        currency: t.currency,
+        account_id: targetAccountId,
+        reason: 'exists_in_db' as const,
+      })))
 
       const toInsert = txs
         .filter(t => !existingHashes.has(t.import_hash))
@@ -252,7 +264,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ imported: totalImported, skipped: totalSkipped, bank, routed: routedTo })
+    return NextResponse.json({ imported: totalImported, skipped: totalSkipped, bank, routed: routedTo, skippedDetails })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Onbekende fout'
     return NextResponse.json({ error: `Serverfout: ${msg}` }, { status: 500 })

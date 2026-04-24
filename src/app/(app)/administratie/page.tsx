@@ -100,7 +100,8 @@ function AdministratieInner() {
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [uploadCurrentFile, setUploadCurrentFile] = useState(0)
-  const [uploadResult, setUploadResult] = useState<{ imported: number; skipped: number; routed?: Record<string, string> } | null>(null)
+  type SkippedDetail = { date: string; description: string; amount: number; currency: string; account_id: string }
+  const [uploadResult, setUploadResult] = useState<{ imported: number; skipped: number; skippedDetails?: SkippedDetail[]; routed?: Record<string, string> } | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
 
   // Transfer
@@ -555,6 +556,7 @@ function AdministratieInner() {
 
     let totalImported = 0, totalSkipped = 0
     let combinedRouted: Record<string, string> = {}
+    let combinedSkipped: SkippedDetail[] = []
     const errors: string[] = []
 
     for (let i = 0; i < uploadFiles.length; i++) {
@@ -585,6 +587,7 @@ function AdministratieInner() {
         totalImported += data.imported || 0
         totalSkipped += data.skipped || 0
         if (data.routed) combinedRouted = { ...combinedRouted, ...data.routed }
+        if (data.skippedDetails) combinedSkipped = [...combinedSkipped, ...data.skippedDetails]
       } else {
         errors.push(`${file.name}: ${data.error || 'Fout'}`)
       }
@@ -592,7 +595,7 @@ function AdministratieInner() {
     }
 
     await loadData()
-    setUploadResult({ imported: totalImported, skipped: totalSkipped, routed: combinedRouted })
+    setUploadResult({ imported: totalImported, skipped: totalSkipped, skippedDetails: combinedSkipped, routed: combinedRouted })
     if (errors.length > 0) setUploadError(errors.join('\n'))
     setTimeout(() => { setUploading(false); setUploadProgress(0); setUploadCurrentFile(0) }, 600)
   }
@@ -1559,13 +1562,31 @@ function AdministratieInner() {
                   </div>
                 )}
                 {uploadResult && (
-                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-sm text-emerald-700 space-y-1">
-                    <p>✓ <strong>{uploadResult.imported}</strong> transacties geïmporteerd{uploadResult.skipped > 0 && `, ${uploadResult.skipped} duplicaten overgeslagen`}</p>
-                    {uploadResult.routed && Object.keys(uploadResult.routed).length > 1 && (
-                      <div className="text-xs text-emerald-600 space-y-0.5 pt-0.5">
-                        {Object.entries(uploadResult.routed).map(([cur, accId]) => (
-                          <p key={cur}>· {cur} → {accountMap[accId]?.name ?? accId}</p>
-                        ))}
+                  <div className="space-y-2">
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-sm text-emerald-700 space-y-1">
+                      <p>✓ <strong>{uploadResult.imported}</strong> transacties geïmporteerd{uploadResult.skipped > 0 && `, ${uploadResult.skipped} duplicaten overgeslagen`}</p>
+                      {uploadResult.routed && Object.keys(uploadResult.routed).length > 1 && (
+                        <div className="text-xs text-emerald-600 space-y-0.5 pt-0.5">
+                          {Object.entries(uploadResult.routed).map(([cur, accId]) => (
+                            <p key={cur}>· {cur} → {accountMap[accId]?.name ?? accId}</p>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    {uploadResult.skippedDetails && uploadResult.skippedDetails.length > 0 && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800 space-y-2">
+                        <p className="font-medium">Overgeslagen duplicaten — staan nog in de database:</p>
+                        <div className="space-y-0.5 max-h-48 overflow-y-auto">
+                          {uploadResult.skippedDetails.map((t, i) => (
+                            <div key={i} className="flex justify-between text-xs text-amber-700 gap-4">
+                              <span className="text-amber-500 shrink-0">{t.date}</span>
+                              <span className="flex-1 truncate">{t.description}</span>
+                              <span className="shrink-0 font-medium">{t.amount.toFixed(2)} {t.currency}</span>
+                              <span className="shrink-0 text-amber-400">{accountMap[t.account_id]?.name ?? '—'}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <p className="text-xs text-amber-600">Verwijder deze transacties eerst als je ze opnieuw wilt importeren.</p>
                       </div>
                     )}
                   </div>
