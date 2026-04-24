@@ -20,13 +20,18 @@ export async function POST(req: NextRequest) {
 
   if (!transactions?.length) return NextResponse.json({ simplified: 0 })
 
+  // Strip "Card transaction of X.XX CUR issued by " prefix before sending to AI
+  function preStrip(raw: string): string {
+    return raw.replace(/^Card transaction of [\d,.]+ [A-Z]{3} issued by /i, '').trim()
+  }
+
   const BATCH = 50
   let totalSimplified = 0
 
   for (let i = 0; i < transactions.length; i += BATCH) {
     const batch = transactions.slice(i, i + BATCH).map(t => ({
       id: t.id,
-      raw: t.original_description || t.description,
+      raw: preStrip(t.original_description || t.description),
       vendor: t.vendor || null,
       type: t.type,
     }))
@@ -47,6 +52,7 @@ Examples:
 "iDEAL betaling aan Albert Heijn 123456" → "Albert Heijn"
 "SEPA Overboeking NL12RABO0123456789 omschrijving: huur" → "Overboeking"
 "Netflix International BV AMSTERDAM" → "Netflix"
+"Mid*Tokopedia www.tokopedia" → "Mid*Tokopedia www.tokopedia"
 
 Transactions:
 ${JSON.stringify(batch)}
