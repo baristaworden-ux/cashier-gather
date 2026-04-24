@@ -20,7 +20,7 @@ const BANK_COLORS: Record<string, string> = {
 }
 
 type Tab = 'overzicht' | 'transacties' | 'uploaden' | 'overboeking' | 'rapport'
-type SortKey = 'date_desc' | 'date_asc' | 'amount_desc' | 'amount_asc'
+type SortKey = 'date_desc' | 'date_asc' | 'amount_desc' | 'amount_asc' | 'vendor_asc' | 'vendor_desc' | 'description_asc' | 'description_desc' | 'category_asc' | 'category_desc' | 'type_asc' | 'type_desc' | 'bank_asc' | 'bank_desc'
 type ReportSort = 'category_asc' | 'category_desc' | 'income_desc' | 'income_asc' | 'expense_desc' | 'expense_asc'
 
 interface CellDropdown {
@@ -70,6 +70,7 @@ function AdministratieInner() {
   // Linking
   const [linkingTx, setLinkingTx] = useState<Transaction | null>(null)
   const [linkCandidates, setLinkCandidates] = useState<Transaction[]>([])
+  const [linkLoading, setLinkLoading] = useState(false)
   const linkRef = useRef<HTMLDivElement>(null)
 
   // AI match popup
@@ -386,18 +387,64 @@ function AdministratieInner() {
   )
 
   // ── Linking ─────────────────────────────────────────────────────────────────
-  function openLinkPanel(tx: Transaction) {
+  async function openLinkPanel(tx: Transaction) {
     if (linkingTx?.id === tx.id) { setLinkingTx(null); return }
-    const txDate = new Date(tx.date).getTime()
-    const candidates = transactions.filter(t =>
-      t.id !== tx.id && t.type === 'transfer' && !t.transfer_group_id &&
-      t.account_id !== tx.account_id &&
-      Math.abs(new Date(t.date).getTime() - txDate) <= 7 * 24 * 3600 * 1000
-    ).sort((a, b) =>
-      Math.abs(new Date(a.date).getTime() - txDate) - Math.abs(new Date(b.date).getTime() - txDate)
-    ).slice(0, 8)
-    setLinkCandidates(candidates)
     setLinkingTx(tx)
+    setLinkCandidates([])
+    setLinkLoading(true)
+
+    const txDate = new Date(tx.date).getTime()
+    const txDateStr = tx.date.slice(0, 10)
+
+    const pool = transactions.filter(t =>
+      t.id !== tx.id &&
+      !t.transfer_group_id &&
+      t.account_id !== tx.account_id &&
+      Math.abs(new Date(t.date).getTime() - txDate) <= 14 * 24 * 3600 * 1000
+    )
+
+    // Fetch exchange rates for cross-currency pairs
+    const rateCache: Record<string, number> = {}
+    const toFetch = new Set<string>()
+    for (const t of pool) {
+      if (t.currency !== tx.currency) {
+        toFetch.add(`${txDateStr}|${tx.currency.toLowerCase()}|${t.currency.toLowerCase()}`)
+      }
+    }
+    await Promise.all(Array.from(toFetch).map(async key => {
+      const [date, from, to] = key.split('|')
+      try {
+        const res = await fetch(`https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@${date}/v1/currencies/${from}.json`)
+        if (res.ok) {
+          const data = await res.json()
+          const rate = data[from]?.[to]
+          if (rate) rateCache[key] = rate
+        }
+      } catch { /* ignore */ }
+    }))
+
+    const scored = pool.map(t => {
+      const daysDiff = Math.abs(new Date(t.date).getTime() - txDate) / (24 * 3600 * 1000)
+      let amountDiff: number
+      if (tx.currency === t.currency) {
+        amountDiff = Math.abs(t.amount - tx.amount) / Math.max(tx.amount, 0.01)
+      } else {
+        const fwdKey = `${txDateStr}|${tx.currency.toLowerCase()}|${t.currency.toLowerCase()}`
+        const revKey = `${txDateStr}|${t.currency.toLowerCase()}|${tx.currency.toLowerCase()}`
+        const rate = rateCache[fwdKey] ?? (rateCache[revKey] ? 1 / rateCache[revKey] : null)
+        if (rate === null) {
+          amountDiff = 0.5
+        } else {
+          const converted = tx.amount * rate
+          amountDiff = Math.abs(t.amount - converted) / Math.max(Math.max(t.amount, converted), 0.01)
+        }
+      }
+      // 70% weight on amount match, 30% on date proximity
+      return { t, score: amountDiff * 0.7 + (daysDiff / 14) * 0.3, amountDiff }
+    }).sort((a, b) => a.score - b.score).slice(0, 8)
+
+    setLinkCandidates(scored.map(s => s.t))
+    setLinkLoading(false)
   }
 
   async function linkTransactions(id_b: string) {
@@ -800,6 +847,16 @@ function AdministratieInner() {
       case 'date_asc':  return a.date.localeCompare(b.date)
       case 'amount_desc': return b.amount - a.amount
       case 'amount_asc':  return a.amount - b.amount
+      case 'vendor_asc':  return (a.vendor ?? '').localeCompare(b.vendor ?? '')
+      case 'vendor_desc': return (b.vendor ?? '').localeCompare(a.vendor ?? '')
+      case 'description_asc':  return a.description.localeCompare(b.description)
+      case 'description_desc': return b.description.localeCompare(a.description)
+      case 'category_asc':  return (a.category ?? '').localeCompare(b.category ?? '')
+      case 'category_desc': return (b.category ?? '').localeCompare(a.category ?? '')
+      case 'type_asc':  return a.type.localeCompare(b.type)
+      case 'type_desc': return b.type.localeCompare(a.type)
+      case 'bank_asc':  return a.source.localeCompare(b.source)
+      case 'bank_desc': return b.source.localeCompare(a.source)
     }
   })
 
@@ -1124,15 +1181,34 @@ function AdministratieInner() {
                               }}
                             />
                           </th>
-                          <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden sm:table-cell">Bank</th>
-                          <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden md:table-cell">Type</th>
-                          <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide w-24">Datum</th>
-                          <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide w-36 hidden md:table-cell">Leverancier</th>
-                          <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Omschrijving</th>
-                          <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden md:table-cell">Categorie</th>
-                          <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden lg:table-cell w-32">Koppeling</th>
-                          <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Bedrag</th>
-                          <th className="w-32 pr-4" />
+                          {(() => {
+                            const SortTh = ({ label, asc, desc, className = '', right = false }: { label: string; asc: SortKey; desc: SortKey; className?: string; right?: boolean }) => {
+                              const active = sortKey === asc || sortKey === desc
+                              const toggle = () => setSortKey(sortKey === asc ? desc : asc)
+                              return (
+                                <th onClick={toggle} className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-wide cursor-pointer select-none group', right ? 'text-right' : 'text-left', active ? 'text-indigo-600' : 'text-slate-500 hover:text-slate-800', className)}>
+                                  <span className="inline-flex items-center gap-1">
+                                    {!right && label}
+                                    <span className="opacity-50 group-hover:opacity-100">{sortKey === asc ? '↑' : sortKey === desc ? '↓' : '↕'}</span>
+                                    {right && label}
+                                  </span>
+                                </th>
+                              )
+                            }
+                            return (
+                              <>
+                                <SortTh label="Bank" asc="bank_asc" desc="bank_desc" className="hidden sm:table-cell" />
+                                <SortTh label="Type" asc="type_asc" desc="type_desc" className="hidden md:table-cell" />
+                                <SortTh label="Datum" asc="date_asc" desc="date_desc" className="w-24" />
+                                <SortTh label="Leverancier" asc="vendor_asc" desc="vendor_desc" className="w-36 hidden md:table-cell" />
+                                <SortTh label="Omschrijving" asc="description_asc" desc="description_desc" />
+                                <SortTh label="Categorie" asc="category_asc" desc="category_desc" className="hidden md:table-cell" />
+                                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden lg:table-cell w-32">Koppeling</th>
+                                <SortTh label="Bedrag" asc="amount_asc" desc="amount_desc" right />
+                                <th className="w-32 pr-4" />
+                              </>
+                            )
+                          })()}
                         </tr>
                       </thead>
                       <tbody>
@@ -1285,11 +1361,18 @@ function AdministratieInner() {
                                 <tr key={`${tx.id}-link`} className="bg-indigo-50 border-b border-indigo-100">
                                   <td colSpan={9} className="px-4 py-3">
                                     <p className="text-xs font-semibold text-indigo-700 mb-2">Koppel aan tegenpost:</p>
-                                    {linkCandidates.length === 0
-                                      ? <p className="text-xs text-slate-400 italic">Geen kandidaten gevonden binnen 7 dagen op andere rekeningen.</p>
-                                      : (
-                                        <div className="flex flex-wrap gap-2">
-                                          {linkCandidates.map(c => (
+                                    {linkLoading ? (
+                                      <p className="text-xs text-slate-400 italic">Zoeken…</p>
+                                    ) : linkCandidates.length === 0 ? (
+                                      <p className="text-xs text-slate-400 italic">Geen kandidaten gevonden binnen 14 dagen op andere rekeningen.</p>
+                                    ) : (
+                                      <div className="flex flex-wrap gap-2">
+                                        {linkCandidates.map(c => {
+                                          const sameCurrency = c.currency === tx.currency
+                                          const pctDiff = sameCurrency
+                                            ? Math.round(Math.abs(c.amount - tx.amount) / Math.max(tx.amount, 0.01) * 100)
+                                            : null
+                                          return (
                                             <button key={c.id} onClick={() => linkTransactions(c.id)}
                                               className="flex items-center gap-2 text-xs bg-white border border-indigo-200 hover:bg-indigo-100 text-slate-700 px-3 py-1.5 rounded-lg transition-colors">
                                               <span className="font-medium">{formatDate(c.date)}</span>
@@ -1297,10 +1380,25 @@ function AdministratieInner() {
                                               <span className={cn('font-semibold', c.type === 'income' ? 'text-emerald-600' : c.type === 'investment' ? 'text-blue-600' : 'text-red-500')}>
                                                 {c.type === 'income' ? '+' : c.type === 'investment' ? '↗' : '-'}{formatCurrency(c.amount, c.currency)}
                                               </span>
+                                              {pctDiff !== null && (
+                                                <span className={cn('text-[10px] font-medium px-1.5 py-0.5 rounded-full',
+                                                  pctDiff === 0 ? 'bg-emerald-100 text-emerald-700' :
+                                                  pctDiff <= 5 ? 'bg-green-50 text-green-600' :
+                                                  pctDiff <= 15 ? 'bg-amber-50 text-amber-600' :
+                                                  'bg-slate-100 text-slate-500')}>
+                                                  {pctDiff === 0 ? 'exact' : `±${pctDiff}%`}
+                                                </span>
+                                              )}
+                                              {!sameCurrency && (
+                                                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-violet-50 text-violet-600">
+                                                  {c.currency}
+                                                </span>
+                                              )}
                                             </button>
-                                          ))}
-                                        </div>
-                                      )}
+                                          )
+                                        })}
+                                      </div>
+                                    )}
                                   </td>
                                 </tr>
                               )}
@@ -1320,12 +1418,21 @@ function AdministratieInner() {
                 const tx = transactions.find(t => t.id === matchPopup.txId)
                 const matchTx = transactions.find(t => t.id === matchPopup.matchId)
                 if (!tx || !matchTx) return null
-                const pickerOptions = transactions.filter(t =>
-                  t.id !== matchPopup.txId &&
-                  (!matchPopupSearch || t.description.toLowerCase().includes(matchPopupSearch.toLowerCase()) ||
-                    (accountMap[t.account_id]?.name ?? '').toLowerCase().includes(matchPopupSearch.toLowerCase()) ||
-                    formatCurrency(t.amount, t.currency).includes(matchPopupSearch))
-                )
+                const pickerOptions = transactions
+                  .filter(t =>
+                    t.id !== matchPopup.txId &&
+                    (!matchPopupSearch || t.description.toLowerCase().includes(matchPopupSearch.toLowerCase()) ||
+                      (accountMap[t.account_id]?.name ?? '').toLowerCase().includes(matchPopupSearch.toLowerCase()) ||
+                      formatCurrency(t.amount, t.currency).includes(matchPopupSearch))
+                  )
+                  .sort((a, b) => {
+                    if (matchPopupSearch) return 0
+                    // Sort by amount similarity to the source transaction
+                    const refAmount = tx.amount
+                    const diffA = Math.abs(a.amount - refAmount) / Math.max(refAmount, 0.01)
+                    const diffB = Math.abs(b.amount - refAmount) / Math.max(refAmount, 0.01)
+                    return diffA - diffB
+                  })
                 return (
                   <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
                     <div ref={matchPopupRef} className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
