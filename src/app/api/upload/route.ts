@@ -179,23 +179,23 @@ export async function POST(req: NextRequest) {
       return null
     }
 
-    // Build currency → account_id routing map.
-    // For PDF uploads: search all user jars by currency (not just same-bank),
-    // so a Wise EUR jar stored as 'manual' still gets matched.
-    // The selected account_id is the fallback for unmatched currencies.
-    const currencyToAccount: Record<string, string> = { [currency]: account_id }
+    // Build currency → account_id routing map for multi-currency PDFs.
+    // The user-selected account_id always wins for the primary currency —
+    // auto-routing only applies to other currencies found in the PDF.
+    const currencyToAccount: Record<string, string> = {}
     if (isPdf) {
       const { data: allAccounts } = await supabase
         .from('admin_accounts')
         .select('id, currency, account_type')
         .eq('user_id', user.id)
-      // Prefer jars over regular accounts when matching by currency
       const jars = (allAccounts || []).filter(a => a.account_type === 'jar')
       const regular = (allAccounts || []).filter(a => a.account_type !== 'jar')
       for (const acc of [...regular, ...jars]) {
         if (acc.currency) currencyToAccount[acc.currency] = acc.id
       }
     }
+    // User-selected jar always takes priority over auto-routing
+    currencyToAccount[currency] = account_id
 
     // Group parsed transactions by their target account
     const byAccount: Record<string, typeof parsed> = {}
