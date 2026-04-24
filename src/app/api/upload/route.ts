@@ -70,7 +70,7 @@ Rules:
 - "date": convert any date format to YYYY-MM-DD
 - "description": the description as shown (e.g. "Moved 100.00 EUR from EUR", "Cashback", "Topped up account")
 - "amount": always a positive number
-- "type": "income" if Incoming/Credit/Kredit column has a value, "expense" if Outgoing/Debit/Debet has a value
+- "type": "transfer" if the description starts with "Moved", otherwise "income" if Incoming/Credit/Kredit has a value, "expense" if Outgoing/Debit/Debet has a value
 - "currency": use ${currencyHint} unless the statement shows a different currency per transaction
 - "tx_id": the transaction ID shown below the description (e.g. "TRANSFER-1986649777", "BALANCE-4763045976") — omit if not present
 
@@ -96,6 +96,11 @@ Skip: opening/closing balance rows, interest/tax rows, rows where both Incoming 
   if (!parsed) return { transactions: [], bank: 'manual' }
 
   type TxRow = { date: string; description: string; amount: number; type: string; currency?: string; tx_id?: string }
+  const resolveType = (r: TxRow): 'income' | 'expense' | 'transfer' => {
+    if (r.type === 'transfer' || r.description?.toLowerCase().startsWith('moved ')) return 'transfer'
+    if (r.type === 'income') return 'income'
+    return 'expense'
+  }
   let detectedBank = 'manual'
   let rows: TxRow[] = []
 
@@ -119,7 +124,7 @@ Skip: opening/closing balance rows, interest/tax rows, rows where both Incoming 
           description: r.description || '—',
           amount: Math.abs(r.amount),
           currency: cur,
-          type: r.type === 'income' ? 'income' : 'expense',
+          type: resolveType(r),
           import_hash: hash(hashKey),
         }
       }),
