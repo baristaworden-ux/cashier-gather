@@ -76,8 +76,11 @@ Rules:
 For Wise PDFs specifically:
 - The table has columns: Description | Incoming | Outgoing | Amount (running balance)
 - Use the Incoming/Outgoing values — NOT the Amount column (that is just the balance)
-- "Moved X from/to [jar]" rows are internal balance moves — skip them
-- "Cashback" rows are income
+- SKIP any row whose description starts with "Moved" — these are internal jar transfers, not real transactions
+- SKIP any row whose Transaction ID starts with "BALANCE-" (format: "Transaction: BALANCE-XXXXXXXXX")
+- "Topped up account" rows are real deposits (income) — keep them
+- "Cashback" rows are income — keep them
+- Outgoing values may appear as negative numbers (e.g. -11.00) — treat them as positive expense amounts
 - Currency is ${currencyHint}
 
 For OCBC PDFs:
@@ -109,7 +112,7 @@ Skip: opening/closing balance rows, interest/tax rows, rows where both sides are
   return {
     bank: detectedBank,
     transactions: rows
-      .filter(r => r.date && r.amount > 0)
+      .filter(r => r.date && r.amount !== 0 && !r.description?.toLowerCase().startsWith('moved '))
       .map(r => {
         const cur = r.currency || currencyHint
         return {
