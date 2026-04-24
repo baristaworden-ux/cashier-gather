@@ -40,6 +40,7 @@ export interface Transaction {
   subcategory?: string
   notes?: string
   vendor?: string
+  counterparty?: string
   ai_categorized: boolean
   status: TransactionStatus
   source: BankSource

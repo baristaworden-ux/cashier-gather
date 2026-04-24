@@ -242,6 +242,7 @@ export async function POST(req: NextRequest) {
             source: bank,
             vendor: match?.vendor ?? undefined,
             category: match?.category ?? undefined,
+            counterparty: t.counterparty ?? undefined,
             ai_categorized: false,
             status: 'draft',
           }

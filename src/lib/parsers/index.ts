@@ -7,6 +7,7 @@ export interface ParsedTransaction {
   currency: string
   type: 'income' | 'expense' | 'transfer'
   import_hash: string
+  counterparty?: string
 }
 
 function hash(str: string): string {
@@ -23,16 +24,19 @@ export function parseRabobank(csv: string): ParsedTransaction[] {
   const lines = csv.trim().split('\n').slice(1)
   return lines.filter(Boolean).map(line => {
     const cols = line.split(',').map(c => c.replace(/^"|"$/g, '').trim())
-    const [date, desc, , , , direction, rawAmount] = cols
+    // Datum,Naam/Omschrijving,Rekening,Tegenrekening,Code,Af/Bij,Bedrag,Mutatiesoort,Mededelingen
+    const [date, counterpartyName, , , , direction, rawAmount, , memo] = cols
     const amount = parseFloat(rawAmount.replace(',', '.'))
     const type = direction === 'Bij' ? 'income' : 'expense'
+    const description = memo || counterpartyName
     return {
       date: date.slice(0, 10),
-      description: desc,
+      description,
       amount: Math.abs(amount),
       currency: 'EUR',
       type,
-      import_hash: hash(`rabobank-${date}-${desc}-${amount}`),
+      import_hash: hash(`rabobank-${date}-${counterpartyName}-${amount}`),
+      counterparty: counterpartyName || undefined,
     }
   })
 }
@@ -46,6 +50,8 @@ export function parseWise(csv: string): ParsedTransaction[] {
   const amountIdx = header.indexOf('Amount')
   const currencyIdx = header.indexOf('Currency')
   const descIdx = header.indexOf('Description')
+  const payerIdx = header.indexOf('Payer Name')
+  const payeeIdx = header.indexOf('Payee Name')
 
   return lines.slice(1).filter(Boolean).map(line => {
     const cols = parseCsvLine(line)
@@ -54,13 +60,19 @@ export function parseWise(csv: string): ParsedTransaction[] {
     const date = normalizeDate(rawDate)
     const desc = cols[descIdx] ?? ''
     const currency = cols[currencyIdx] ?? 'EUR'
+    const isIncome = amount >= 0
+    const counterpartyRaw = isIncome
+      ? (payerIdx >= 0 ? cols[payerIdx] : '')
+      : (payeeIdx >= 0 ? cols[payeeIdx] : '')
+    const counterparty = counterpartyRaw?.trim() || undefined
     return {
       date,
       description: desc,
       amount: Math.abs(amount),
       currency,
-      type: amount >= 0 ? 'income' : 'expense',
+      type: isIncome ? 'income' : 'expense',
       import_hash: hash(`wise-${date}-${desc}-${amount}-${currency}`),
+      counterparty,
     }
   })
 }

@@ -1203,6 +1203,7 @@ function AdministratieInner() {
                                 <SortTh label="Datum" asc="date_asc" desc="date_desc" className="w-24" />
                                 <SortTh label="Leverancier" asc="vendor_asc" desc="vendor_desc" className="w-36 hidden md:table-cell" />
                                 <SortTh label="Omschrijving" asc="description_asc" desc="description_desc" />
+                                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden lg:table-cell w-32">Tegenpartij</th>
                                 <SortTh label="Categorie" asc="category_asc" desc="category_desc" className="hidden md:table-cell" />
                                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden lg:table-cell w-32">Koppeling</th>
                                 <SortTh label="Bedrag" asc="amount_asc" desc="amount_desc" right />
@@ -1289,6 +1290,15 @@ function AdministratieInner() {
                                   <button onClick={() => openDetail(tx)} className="text-xs text-slate-700 truncate max-w-full block text-left hover:text-indigo-600 transition-colors" title={tx.description}>
                                     {tx.description}
                                   </button>
+                                </td>
+
+                                {/* Tegenpartij */}
+                                <td className="px-4 py-2.5 hidden lg:table-cell">
+                                  {tx.counterparty ? (
+                                    <span className="text-xs text-slate-500 truncate block max-w-[120px]" title={tx.counterparty}>
+                                      {tx.counterparty}
+                                    </span>
+                                  ) : null}
                                 </td>
 
                                 {/* Categorie — clickable */}
@@ -1378,7 +1388,7 @@ function AdministratieInner() {
                               {/* Link panel */}
                               {isLinking && (
                                 <tr key={`${tx.id}-link`} className="bg-indigo-50 border-b border-indigo-100">
-                                  <td colSpan={10} className="px-4 py-3">
+                                  <td colSpan={11} className="px-4 py-3">
                                     <p className="text-xs font-semibold text-indigo-700 mb-2">Koppel aan tegenpost:</p>
                                     {linkLoading ? (
                                       <p className="text-xs text-slate-400 italic">Zoeken…</p>
