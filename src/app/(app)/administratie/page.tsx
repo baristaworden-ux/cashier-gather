@@ -492,15 +492,19 @@ function AdministratieInner() {
   }
 
   async function processTransaction(tx: Transaction) {
-    const res = await fetch('/api/transactions/process', {
+    const linked = tx.transfer_group_id
+      ? transactions.find(t => t.id !== tx.id && t.transfer_group_id === tx.transfer_group_id && t.status === 'draft')
+      : null
+
+    const ids = [tx.id, ...(linked ? [linked.id] : [])]
+    await Promise.all(ids.map(id => fetch('/api/transactions/process', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: tx.id }),
-    })
-    if (res.ok) {
-      setTransactions(txs => txs.map(t => t.id === tx.id ? { ...t, status: 'processed' } : t))
-      const accRes = await fetch('/api/accounts')
-      if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []) }
-    }
+      body: JSON.stringify({ id }),
+    })))
+
+    setTransactions(txs => txs.map(t => ids.includes(t.id) ? { ...t, status: 'processed' } : t))
+    const accRes = await fetch('/api/accounts')
+    if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []) }
   }
 
   async function revertTransaction(tx: Transaction) {
