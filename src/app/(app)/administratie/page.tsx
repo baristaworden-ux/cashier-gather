@@ -1079,6 +1079,7 @@ function AdministratieInner() {
                             />
                           </th>
                           <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden sm:table-cell">Bank</th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden md:table-cell">Type</th>
                           <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide w-24">Datum</th>
                           <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide w-36 hidden md:table-cell">Leverancier</th>
                           <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Omschrijving</th>
@@ -1112,6 +1113,16 @@ function AdministratieInner() {
                                 <td className="px-4 py-2.5 hidden sm:table-cell">
                                   <span className="text-xs text-slate-500">
                                     {BANK_SHORT[tx.source] ?? tx.source}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-2.5 hidden md:table-cell">
+                                  <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full',
+                                    tx.type === 'income' ? 'bg-emerald-50 text-emerald-700' :
+                                    tx.type === 'expense' ? 'bg-red-50 text-red-600' :
+                                    tx.type === 'transfer' ? 'bg-slate-100 text-slate-500' :
+                                    tx.type === 'investment' ? 'bg-blue-50 text-blue-600' :
+                                    tx.type === 'advance' ? 'bg-amber-50 text-amber-600' : 'bg-slate-100 text-slate-500')}>
+                                    {tx.type === 'income' ? 'Inkomen' : tx.type === 'expense' ? 'Uitgave' : tx.type === 'transfer' ? 'Overboeking' : tx.type === 'investment' ? 'Investering' : tx.type === 'advance' ? 'Voorschot' : tx.type}
                                   </span>
                                 </td>
                                 <td className="px-4 py-2.5 text-xs text-slate-500 whitespace-nowrap">{formatDate(tx.date)}</td>
