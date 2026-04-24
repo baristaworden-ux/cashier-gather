@@ -252,9 +252,17 @@ export async function POST(req: NextRequest) {
       if (toInsert.length > 0) {
         const { error } = await supabase.from('admin_transactions').insert(toInsert)
         if (error) {
-          // Duplicate key means these were already imported — count as skipped, not an error
           if (error.message.includes('duplicate key') || error.code === '23505') {
-            totalSkipped += toInsert.length
+            // Batch had duplicates — insert one-by-one to find which ones
+            for (const row of toInsert) {
+              const { error: rowErr } = await supabase.from('admin_transactions').insert(row)
+              if (rowErr) {
+                totalSkipped++
+                skippedDetails.push({ date: row.date, description: row.description, amount: row.amount, currency: row.currency, account_id: targetAccountId, reason: 'exists_in_db' })
+              } else {
+                totalImported++
+              }
+            }
           } else {
             return NextResponse.json({ error: error.message }, { status: 500 })
           }
