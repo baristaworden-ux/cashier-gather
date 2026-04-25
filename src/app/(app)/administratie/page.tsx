@@ -58,6 +58,7 @@ function AdministratieInner() {
   const [filterDateFrom, setFilterDateFrom] = useState('')
   const [filterDateTo, setFilterDateTo] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('date_desc')
+  const [visibleCount, setVisibleCount] = useState(200)
   const [txTab, setTxTab] = useState<'draft' | 'processed'>('draft')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [showAiPrompt, setShowAiPrompt] = useState(false)
@@ -880,6 +881,9 @@ function AdministratieInner() {
     }
   }
 
+  // Reset visible count whenever filters/tab/sort change
+  useEffect(() => { setVisibleCount(200) }, [txTab, filterAccount, filterType, filterCategory, filterDateFrom, filterDateTo, sortKey, search])
+
   const filtered = transactions.filter(t => {
     if ((t.status || 'processed') !== txTab) return false
     if (filterAccount && t.account_id !== filterAccount) return false
@@ -1229,9 +1233,9 @@ function AdministratieInner() {
                             <input
                               type="checkbox"
                               className="rounded border-slate-300 text-indigo-500 cursor-pointer"
-                              checked={filtered.length > 0 && filtered.slice(0, 200).every(t => selectedIds.has(t.id))}
+                              checked={filtered.length > 0 && filtered.slice(0, visibleCount).every(t => selectedIds.has(t.id))}
                               onChange={e => {
-                                const ids = filtered.slice(0, 200).map(t => t.id)
+                                const ids = filtered.slice(0, visibleCount).map(t => t.id)
                                 setSelectedIds(e.target.checked ? new Set(ids) : new Set())
                               }}
                             />
@@ -1267,7 +1271,7 @@ function AdministratieInner() {
                         </tr>
                       </thead>
                       <tbody>
-                        {filtered.slice(0, 200).map(tx => {
+                        {filtered.slice(0, visibleCount).map(tx => {
                           const isLinking = linkingTx?.id === tx.id
                           const linkedTx = tx.transfer_group_id
                             ? transactions.find(t => t.id !== tx.id && t.transfer_group_id === tx.transfer_group_id)
@@ -1502,8 +1506,24 @@ function AdministratieInner() {
                         })}
                       </tbody>
                     </table>
-                    {filtered.length > 200 && (
-                      <p className="text-xs text-slate-400 text-center py-3">Toont 200 van {filtered.length} — gebruik filters om te verfijnen</p>
+                    {filtered.length > visibleCount && (
+                      <div className="flex flex-col items-center gap-2 py-4">
+                        <p className="text-xs text-slate-400">Toont {visibleCount} van {filtered.length}</p>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setVisibleCount(c => c + 200)}
+                            className="px-4 py-1.5 text-sm font-medium text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors"
+                          >
+                            Laad 200 meer
+                          </button>
+                          <button
+                            onClick={() => setVisibleCount(filtered.length)}
+                            className="px-4 py-1.5 text-sm font-medium text-slate-500 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+                          >
+                            Alles tonen ({filtered.length})
+                          </button>
+                        </div>
+                      </div>
                     )}
                   </div>
                 )}
