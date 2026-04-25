@@ -531,6 +531,21 @@ function AdministratieInner() {
     }
   }
 
+  async function bulkProcess() {
+    const ids = Array.from(selectedIds)
+    await Promise.all(ids.map(id =>
+      fetch('/api/transactions/process', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      })
+    ))
+    setTransactions(txs => txs.map(t => selectedIds.has(t.id) ? { ...t, status: 'processed' } : t))
+    setSelectedIds(new Set())
+    const [accRes, loanRes] = await Promise.all([fetch('/api/accounts'), fetch('/api/loans')])
+    if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []) }
+    if (loanRes.ok) { const d = await loanRes.json(); setLoans(d.loans || []) }
+  }
+
   async function bulkDelete() {
     const ids = Array.from(selectedIds)
     const results = await Promise.all(ids.map(id => fetch(`/api/transactions?id=${id}`, { method: 'DELETE' }).then(r => ({ id, ok: r.ok }))))
@@ -1155,9 +1170,15 @@ function AdministratieInner() {
                     <span className="text-slate-300">{selectedIds.size} geselecteerd</span>
                     <span className="text-slate-600">·</span>
                     {txTab === 'draft' ? (
-                      <button onClick={bulkDelete} className="flex items-center gap-1 text-red-400 hover:text-red-300 transition-colors">
-                        <Trash2 size={11} />Verwijderen
-                      </button>
+                      <>
+                        <button onClick={bulkProcess} className="flex items-center gap-1 text-emerald-400 hover:text-emerald-300 transition-colors">
+                          <Plus size={11} />Toevoegen
+                        </button>
+                        <span className="text-slate-600">·</span>
+                        <button onClick={bulkDelete} className="flex items-center gap-1 text-red-400 hover:text-red-300 transition-colors">
+                          <Trash2 size={11} />Verwijderen
+                        </button>
+                      </>
                     ) : (
                       <button onClick={bulkRevert} className="flex items-center gap-1 text-amber-400 hover:text-amber-300 transition-colors">
                         <RotateCcw size={11} />Terugzetten naar draft
