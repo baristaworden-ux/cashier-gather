@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
 
   const { error } = await supabase
     .from('admin_transactions')
-    .update({ transfer_group_id })
+    .update({ transfer_group_id, type: 'transfer' })
     .in('id', [id_a, id_b])
     .eq('user_id', user.id)
 
