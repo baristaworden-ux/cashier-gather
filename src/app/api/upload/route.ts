@@ -106,9 +106,10 @@ Skip: opening/closing balance rows, interest/tax rows, rows where both columns a
   if (!parsed) return { transactions: [], bank: 'manual' }
 
   type TxRow = { date: string; description: string; amount: number; type: string; currency?: string; tx_id?: string }
+  const INCOME_TYPES = new Set(['income', 'credit', 'cr', 'bij', 'kredit', 'deposit', 'inkomsten'])
   const resolveType = (r: TxRow): 'income' | 'expense' | 'transfer' => {
     if (r.type === 'transfer' || r.description?.toLowerCase().startsWith('moved ')) return 'transfer'
-    if (r.type === 'income') return 'income'
+    if (INCOME_TYPES.has(r.type?.toLowerCase())) return 'income'
     return 'expense'
   }
   let detectedBank = 'manual'
