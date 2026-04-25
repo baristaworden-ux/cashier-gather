@@ -68,11 +68,21 @@ Return ONLY this JSON structure, no markdown, no explanation:
 Rules:
 - "bank": detect from institution name → "wise", "rabobank", "revolut", "ocbc", or "manual"
 - "date": convert any date format to YYYY-MM-DD
-- "description": the description as shown (e.g. "Moved 100.00 EUR from EUR", "Cashback", "Topped up account")
+- "description": the counterparty name + first meaningful description line (e.g. "OOM HOLDING NV Premie polis 7323035")
 - "amount": always a positive number
-- "type": "transfer" if the description starts with "Moved", otherwise "income" if Incoming/Credit/Kredit has a value, "expense" if Outgoing/Debit/Debet has a value
+- "type": determined per-bank rules below; default "income" if Credit column has value, "expense" if Debit column has value
 - "currency": use ${currencyHint} unless the statement shows a different currency per transaction
-- "tx_id": the transaction ID shown below the description (e.g. "TRANSFER-1986649777", "BALANCE-4763045976") — omit if not present
+- "tx_id": the transaction reference/payment ref shown below the description — omit if not present
+
+For Rabobank PDFs specifically:
+- The table columns are: Value date | Type code | Counterparty account | Name/description | Debit amount | Credit amount
+- "Debit amount" column = expense (money leaving the account)
+- "Credit amount" column = income (money entering the account)
+- If a row has a value in the Debit amount column → type "expense"
+- If a row has a value in the Credit amount column → type "income"
+- "description": use the Name/description field (counterparty name + first description line, e.g. "OOM HOLDING NV Premie polis 7323035", "Rabobank Rabo TotaalPakket", "P.H.M. Leblanc Aanbetaling Vinmec")
+- "tx_id": use the Payment ref. value (e.g. "OO9T005416714232", "44041691568")
+- Skip rows that are opening/closing balance summaries
 
 For Wise PDFs specifically:
 - The table has columns: Description | Incoming | Outgoing | Amount (running balance)
@@ -85,7 +95,7 @@ For OCBC PDFs:
 - Sections start with "Currency Code : XXX" — extract all sections with their respective currency
 - KREDIT = income, DEBET = expense
 
-Skip: opening/closing balance rows, interest/tax rows, rows where both Incoming and Outgoing are 0.`,
+Skip: opening/closing balance rows, interest/tax rows, rows where both columns are 0.`,
         },
       ],
     }],
