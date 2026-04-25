@@ -339,17 +339,27 @@ function AdministratieInner() {
     if (!detailTx || Object.keys(detailEdits).length === 0) { setDetailTx(null); return }
     setSavingDetail(true)
 
-    // If category changed and transaction has a vendor, update the vendor record
     const newCategory = detailEdits.category
     const vendorName = detailEdits.vendor ?? detailTx.vendor
-    if (newCategory && vendorName) {
+    if (vendorName) {
       const existingVendor = vendors.find(v => v.name === vendorName)
-      if (existingVendor && existingVendor.category !== newCategory) {
-        await fetch('/api/vendors', {
-          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: existingVendor.id, category: newCategory }),
+      if (existingVendor) {
+        // Update category on existing vendor if it changed
+        if (newCategory && existingVendor.category !== newCategory) {
+          await fetch('/api/vendors', {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: existingVendor.id, category: newCategory }),
+          })
+          setVendors(vs => vs.map(v => v.id === existingVendor.id ? { ...v, category: newCategory } : v))
+        }
+      } else if (detailEdits.vendor) {
+        // New vendor typed in detail modal — persist to vendor list
+        const category = newCategory || detailTx.category || ''
+        const res = await fetch('/api/vendors', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: vendorName, category }),
         })
-        setVendors(vs => vs.map(v => v.id === existingVendor.id ? { ...v, category: newCategory } : v))
+        if (res.ok) { const d = await res.json(); setVendors(vs => [...vs, d.vendor]) }
       }
     }
 
@@ -1654,9 +1664,10 @@ function AdministratieInner() {
                         — Geen leverancier
                       </button>
                     )}
-                    {filteredDropdownOptions.length === 0 ? (
+                    {filteredDropdownOptions.length === 0 && !(cellDropdown.field === 'vendor' && cellSearch) && (
                       <p className="text-xs text-slate-400 italic px-3 py-3">Geen resultaten.</p>
-                    ) : filteredDropdownOptions.map(opt => {
+                    )}
+                    {filteredDropdownOptions.map(opt => {
                       const typeLabel = cellDropdown.field === 'category' ? catTypeLabel(opt) : null
                       const isChild = cellDropdown.field === 'category' && !!categories.find(c => c.name === opt)?.parent_id
                       return (
@@ -1671,6 +1682,15 @@ function AdministratieInner() {
                         </button>
                       )
                     })}
+                    {cellDropdown.field === 'vendor' && cellSearch && !vendorNames.find(v => v.toLowerCase() === cellSearch.toLowerCase()) && (
+                      <button
+                        onClick={() => { updateCellValue(cellDropdown.txId, 'vendor', cellSearch); setCellDropdown(null) }}
+                        className="w-full text-left px-3 py-2 text-sm text-indigo-600 hover:bg-indigo-50 transition-colors border-t border-slate-100 flex items-center gap-1.5"
+                      >
+                        <Plus size={12} />
+                        &quot;{cellSearch}&quot; toevoegen als leverancier
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
