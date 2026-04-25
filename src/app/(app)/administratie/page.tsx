@@ -1241,7 +1241,7 @@ function AdministratieInner() {
                               const active = sortKey === asc || sortKey === desc
                               const toggle = () => setSortKey(sortKey === asc ? desc : asc)
                               return (
-                                <th onClick={toggle} className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-wide cursor-pointer select-none group', right ? 'text-right' : 'text-left', active ? 'text-indigo-600' : 'text-slate-500 hover:text-slate-800', className)}>
+                                <th onClick={toggle} className={cn('px-3 py-3 text-xs font-semibold uppercase tracking-wide cursor-pointer select-none group', right ? 'text-right' : 'text-left', active ? 'text-indigo-600' : 'text-slate-500 hover:text-slate-800', className)}>
                                   <span className="inline-flex items-center gap-1">
                                     {!right && label}
                                     <span className="opacity-50 group-hover:opacity-100">{sortKey === asc ? '↑' : sortKey === desc ? '↓' : '↕'}</span>
@@ -1252,17 +1252,15 @@ function AdministratieInner() {
                             }
                             return (
                               <>
-                                <SortTh label="Bank" asc="bank_asc" desc="bank_desc" className="hidden sm:table-cell" />
-                                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden md:table-cell w-28">Jar</th>
+                                <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden sm:table-cell w-10">Bank</th>
                                 <SortTh label="Type" asc="type_asc" desc="type_desc" className="hidden md:table-cell" />
                                 <SortTh label="Datum" asc="date_asc" desc="date_desc" className="w-24" />
-                                <SortTh label="Leverancier" asc="vendor_asc" desc="vendor_desc" className="w-36 hidden md:table-cell" />
+                                <SortTh label="Leverancier" asc="vendor_asc" desc="vendor_desc" className="w-28 hidden md:table-cell" />
                                 <SortTh label="Omschrijving" asc="description_asc" desc="description_desc" />
-                                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden lg:table-cell w-32">Tegenpartij</th>
-                                <SortTh label="Categorie" asc="category_asc" desc="category_desc" className="hidden md:table-cell" />
-                                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden lg:table-cell w-32">Koppeling</th>
+                                <SortTh label="Categorie" asc="category_asc" desc="category_desc" className="hidden lg:table-cell w-28" />
+                                <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden lg:table-cell w-24">Koppeling</th>
                                 <SortTh label="Bedrag" asc="amount_asc" desc="amount_desc" right />
-                                <th className="w-32 pr-4" />
+                                <th className="w-20 pr-3" />
                               </>
                             )
                           })()}
@@ -1309,29 +1307,21 @@ function AdministratieInner() {
                                     })}
                                   />
                                 </td>
-                                <td className="px-4 py-2.5 hidden sm:table-cell">
-                                  <span className="text-xs text-slate-500">
-                                    {BANK_SHORT[tx.source] ?? tx.source}
-                                  </span>
+                                {/* Bank dot + jar stacked */}
+                                <td className="px-3 py-2 hidden sm:table-cell w-10">
+                                  <div className="flex flex-col items-center gap-1">
+                                    <span className={cn('w-2.5 h-2.5 rounded-full shrink-0', BANK_COLORS[tx.source] ?? 'bg-slate-400')} title={BANK_SHORT[tx.source] ?? tx.source} />
+                                    {accountMap[tx.account_id]?.account_type === 'jar' && (
+                                      <PiggyBank size={9} className="text-amber-500 shrink-0" aria-label={accountMap[tx.account_id]?.name} />
+                                    )}
+                                  </div>
                                 </td>
-                                <td className="px-4 py-2.5 hidden md:table-cell">
-                                  {(() => {
-                                    const acc = accountMap[tx.account_id]
-                                    if (acc?.account_type !== 'jar') return null
-                                    return (
-                                      <span className="flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full w-fit">
-                                        <PiggyBank size={10} className="shrink-0" />
-                                        <span className="truncate max-w-[80px]">{acc.name}</span>
-                                      </span>
-                                    )
-                                  })()}
-                                </td>
-                                <td className="px-4 py-2.5 hidden md:table-cell">
+                                <td className="px-3 py-2 hidden md:table-cell">
                                   {(() => {
                                     const isTransferCredit = tx.type === 'income' && !!tx.transfer_group_id
                                     const displayType = isTransferCredit ? 'transfer' : tx.type
                                     return (
-                                      <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full',
+                                      <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap',
                                         displayType === 'income' ? 'bg-emerald-50 text-emerald-700' :
                                         displayType === 'expense' ? 'bg-red-50 text-red-600' :
                                         displayType === 'transfer' ? 'bg-slate-100 text-slate-500' :
@@ -1343,14 +1333,14 @@ function AdministratieInner() {
                                     )
                                   })()}
                                 </td>
-                                <td className="px-4 py-2.5 text-xs text-slate-500 whitespace-nowrap">{formatDate(tx.date)}</td>
+                                <td className="px-3 py-2 text-xs text-slate-500 whitespace-nowrap">{formatDate(tx.date)}</td>
 
                                 {/* Leverancier — clickable */}
-                                <td className="px-4 py-2.5 hidden md:table-cell">
+                                <td className="px-3 py-2 hidden md:table-cell">
                                   <button
                                     onClick={e => openCellDropdown(tx, 'vendor', e)}
                                     className={cn(
-                                      'text-xs px-2 py-1 rounded-lg border transition-colors text-left w-full truncate max-w-[130px]',
+                                      'text-xs px-2 py-1 rounded-lg border transition-colors text-left w-full truncate max-w-[110px]',
                                       cellDropdown?.txId === tx.id && cellDropdown.field === 'vendor'
                                         ? 'border-indigo-400 bg-indigo-50 text-indigo-700'
                                         : tx.vendor
@@ -1362,33 +1352,25 @@ function AdministratieInner() {
                                   </button>
                                 </td>
 
-                                <td className="px-4 py-2.5 max-w-xs">
+                                <td className="px-3 py-2 max-w-xs">
                                   {isDragOver ? (
                                     <span className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-700 bg-indigo-100 border border-indigo-300 px-2 py-0.5 rounded-full">
                                       <Link2 size={10} />Koppelen
                                     </span>
                                   ) : (
-                                    <button onClick={() => openDetail(tx)} className="text-xs text-slate-700 truncate max-w-full block text-left hover:text-indigo-600 transition-colors" title={tx.description}>
+                                    <button onClick={() => openDetail(tx)} className="text-xs text-slate-700 truncate max-w-full block text-left hover:text-indigo-600 transition-colors" title={`${tx.description}${tx.counterparty ? ` · ${tx.counterparty}` : ''}`}>
                                       {tx.description}
+                                      {tx.counterparty && <span className="text-slate-400 ml-1">· {tx.counterparty}</span>}
                                     </button>
                                   )}
                                 </td>
 
-                                {/* Tegenpartij */}
-                                <td className="px-4 py-2.5 hidden lg:table-cell">
-                                  {tx.counterparty ? (
-                                    <span className="text-xs text-slate-500 truncate block max-w-[120px]" title={tx.counterparty}>
-                                      {tx.counterparty}
-                                    </span>
-                                  ) : null}
-                                </td>
-
                                 {/* Categorie — clickable */}
-                                <td className="px-4 py-2.5 hidden md:table-cell">
+                                <td className="px-3 py-2 hidden lg:table-cell">
                                   <button
                                     onClick={e => openCellDropdown(tx, 'category', e)}
                                     className={cn(
-                                      'text-xs font-medium px-2 py-0.5 rounded-full border transition-colors',
+                                      'text-xs font-medium px-2 py-0.5 rounded-full border transition-colors whitespace-nowrap',
                                       cellDropdown?.txId === tx.id && cellDropdown.field === 'category'
                                         ? 'border-indigo-400 bg-indigo-50 text-indigo-700'
                                         : tx.category
@@ -1401,10 +1383,10 @@ function AdministratieInner() {
                                 </td>
 
                                 {/* Koppeling */}
-                                <td className="px-4 py-2.5 hidden lg:table-cell">
+                                <td className="px-3 py-2 hidden lg:table-cell">
                                   {linkedTx ? (
-                                    <div className="flex items-center gap-1.5">
-                                      <span className="text-xs bg-indigo-50 text-indigo-600 border border-indigo-200 px-2 py-0.5 rounded-full font-medium flex items-center gap-1 truncate max-w-[100px]">
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-xs bg-indigo-50 text-indigo-600 border border-indigo-200 px-2 py-0.5 rounded-full font-medium flex items-center gap-1 truncate max-w-[80px]">
                                         <Link2 size={10} className="shrink-0" />
                                         {accountMap[linkedTx.account_id]?.name ?? '—'}
                                       </span>
@@ -1414,13 +1396,10 @@ function AdministratieInner() {
                                     <div className="flex items-center gap-1">
                                       <button onClick={() => openMatchPopup(tx)}
                                         className="flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border transition-colors bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100">
-                                        <Sparkles size={10} />Found match
+                                        <Sparkles size={10} />Match
                                       </button>
-                                      <button
-                                        onClick={() => setAiMatches(m => { const next = { ...m }; const mid = m[tx.id]; delete next[tx.id]; if (mid) delete next[mid]; return next })}
-                                        className="text-slate-300 hover:text-slate-500 transition-colors" title="Verwijderen">
-                                        <X size={11} />
-                                      </button>
+                                      <button onClick={() => setAiMatches(m => { const next = { ...m }; const mid = m[tx.id]; delete next[tx.id]; if (mid) delete next[mid]; return next })}
+                                        className="text-slate-300 hover:text-slate-500 transition-colors"><X size={11} /></button>
                                     </div>
                                   ) : tx.type === 'transfer' ? (
                                     <button onClick={() => openLinkPanel(tx)}
@@ -1431,12 +1410,12 @@ function AdministratieInner() {
                                   ) : null}
                                 </td>
 
-                                <td className={cn('px-4 py-2.5 text-right font-semibold whitespace-nowrap text-sm',
+                                <td className={cn('px-3 py-2 text-right font-semibold whitespace-nowrap text-sm',
                                   tx.type === 'income' ? 'text-emerald-600' : tx.type === 'expense' ? 'text-red-500' : tx.type === 'investment' ? 'text-blue-600' : tx.type === 'advance' ? 'text-amber-600' : tx.type === 'aflossing' ? 'text-rose-600' : 'text-slate-500')}>
                                   {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : tx.type === 'investment' ? '↗' : tx.type === 'advance' ? '⟳' : tx.type === 'aflossing' ? '↘' : ''}
                                   {formatCurrency(tx.amount, tx.currency)}
                                 </td>
-                                <td className="pl-2 pr-4 py-2.5">
+                                <td className="pl-1 pr-3 py-2">
                                   <div className="flex items-center gap-1 justify-end">
                                     {txTab === 'draft' ? (
                                       <>
@@ -1470,7 +1449,7 @@ function AdministratieInner() {
                               {/* Link panel */}
                               {isLinking && (
                                 <tr key={`${tx.id}-link`} className="bg-indigo-50 border-b border-indigo-100">
-                                  <td colSpan={11} className="px-4 py-3">
+                                  <td colSpan={10} className="px-4 py-3">
                                     <p className="text-xs font-semibold text-indigo-700 mb-2">Koppel aan tegenpost:</p>
                                     {linkLoading ? (
                                       <p className="text-xs text-slate-400 italic">Zoeken…</p>
