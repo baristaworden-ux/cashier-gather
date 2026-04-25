@@ -1252,7 +1252,7 @@ function AdministratieInner() {
                             }
                             return (
                               <>
-                                <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden sm:table-cell w-10">Bank</th>
+                                <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden sm:table-cell w-32">Bank / Jar</th>
                                 <SortTh label="Type" asc="type_asc" desc="type_desc" className="hidden md:table-cell" />
                                 <SortTh label="Datum" asc="date_asc" desc="date_desc" className="w-24" />
                                 <SortTh label="Leverancier" asc="vendor_asc" desc="vendor_desc" className="w-28 hidden md:table-cell" />
@@ -1307,12 +1307,17 @@ function AdministratieInner() {
                                     })}
                                   />
                                 </td>
-                                {/* Bank dot + jar stacked */}
-                                <td className="px-3 py-2 hidden sm:table-cell w-10">
-                                  <div className="flex flex-col items-center gap-1">
-                                    <span className={cn('w-2.5 h-2.5 rounded-full shrink-0', BANK_COLORS[tx.source] ?? 'bg-slate-400')} title={BANK_SHORT[tx.source] ?? tx.source} />
-                                    {accountMap[tx.account_id]?.account_type === 'jar' && (
-                                      <PiggyBank size={9} className="text-amber-500 shrink-0" aria-label={accountMap[tx.account_id]?.name} />
+                                {/* Bank dot + jar name */}
+                                <td className="px-3 py-2 hidden sm:table-cell w-32">
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    <span className={cn('w-2 h-2 rounded-full shrink-0', BANK_COLORS[tx.source] ?? 'bg-slate-400')} />
+                                    {accountMap[tx.account_id]?.account_type === 'jar' ? (
+                                      <span className="flex items-center gap-1 min-w-0">
+                                        <PiggyBank size={10} className="text-amber-500 shrink-0" />
+                                        <span className="text-xs text-amber-700 truncate">{accountMap[tx.account_id]?.name}</span>
+                                      </span>
+                                    ) : (
+                                      <span className="text-xs text-slate-400 truncate">{BANK_SHORT[tx.source] ?? tx.source}</span>
                                     )}
                                   </div>
                                 </td>
