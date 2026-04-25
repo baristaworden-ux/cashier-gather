@@ -192,9 +192,11 @@ export async function POST(req: NextRequest) {
 
     // Build currency → account_id routing map for multi-currency PDFs.
     // The user-selected account_id always wins for the primary currency —
-    // auto-routing only applies to other currencies found in the PDF.
+    // Auto-routing by currency only applies to OCBC PDFs, which embed multiple
+    // currency sections in a single file. For all other banks every transaction
+    // belongs to the account the user explicitly selected.
     const currencyToAccount: Record<string, string> = {}
-    if (isPdf) {
+    if (isPdf && bank === 'ocbc') {
       const { data: allAccounts } = await supabase
         .from('admin_accounts')
         .select('id, currency, account_type')
@@ -205,7 +207,7 @@ export async function POST(req: NextRequest) {
         if (acc.currency) currencyToAccount[acc.currency] = acc.id
       }
     }
-    // User-selected jar always takes priority over auto-routing
+    // Selected account always wins
     currencyToAccount[currency] = account_id
 
     // Group parsed transactions by their target account
