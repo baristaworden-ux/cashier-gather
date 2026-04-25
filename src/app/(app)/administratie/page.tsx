@@ -74,6 +74,10 @@ function AdministratieInner() {
   const [linkLoading, setLinkLoading] = useState(false)
   const linkRef = useRef<HTMLDivElement>(null)
 
+  // Drag-to-link
+  const [draggingTxId, setDraggingTxId] = useState<string | null>(null)
+  const [dragOverTxId, setDragOverTxId] = useState<string | null>(null)
+
   // AI match popup
   const [aiMatches, setAiMatches] = useState<Record<string, string>>({})
   const [matchPopup, setMatchPopup] = useState<{ txId: string; matchId: string; fromAmount: number; toAmount: number } | null>(null)
@@ -480,6 +484,17 @@ function AdministratieInner() {
     await fetch(`/api/transactions/link?id=${tx.id}`, { method: 'DELETE' })
     const groupId = tx.transfer_group_id
     setTransactions(txs => txs.map(t => t.transfer_group_id === groupId ? { ...t, transfer_group_id: undefined } : t))
+  }
+
+  async function dragLink(id_a: string, id_b: string) {
+    const res = await fetch('/api/transactions/link', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id_a, id_b }),
+    })
+    if (res.ok) {
+      const { transfer_group_id } = await res.json()
+      setTransactions(txs => txs.map(t => t.id === id_a || t.id === id_b ? { ...t, transfer_group_id } : t))
+    }
   }
 
   async function linkFromDetail(targetId: string) {
@@ -1259,9 +1274,29 @@ function AdministratieInner() {
                           const linkedTx = tx.transfer_group_id
                             ? transactions.find(t => t.id !== tx.id && t.transfer_group_id === tx.transfer_group_id)
                             : null
+                          const isDragging = draggingTxId === tx.id
+                          const draggingTx = draggingTxId ? transactions.find(t => t.id === draggingTxId) : null
+                          const isValidDropTarget = !!draggingTxId && tx.id !== draggingTxId && tx.account_id !== draggingTx?.account_id && !tx.transfer_group_id && !draggingTx?.transfer_group_id
+                          const isDragOver = dragOverTxId === tx.id && isValidDropTarget
                           return (
                             <>
-                              <tr key={tx.id} className={cn('border-b border-slate-50 transition-colors', isLinking ? 'bg-indigo-50' : selectedIds.has(tx.id) ? 'bg-indigo-50/60' : 'hover:bg-slate-50')}>
+                              <tr
+                                key={tx.id}
+                                draggable
+                                onDragStart={() => setDraggingTxId(tx.id)}
+                                onDragEnd={() => { setDraggingTxId(null); setDragOverTxId(null) }}
+                                onDragOver={e => { if (isValidDropTarget) { e.preventDefault(); setDragOverTxId(tx.id) } }}
+                                onDragLeave={() => setDragOverTxId(null)}
+                                onDrop={e => { e.preventDefault(); if (isValidDropTarget && draggingTxId) { dragLink(draggingTxId, tx.id); setDraggingTxId(null); setDragOverTxId(null) } }}
+                                className={cn('border-b border-slate-50 transition-colors relative',
+                                  isDragOver ? 'bg-indigo-100 outline outline-2 outline-indigo-400' :
+                                  isDragging ? 'opacity-40' :
+                                  draggingTxId && isValidDropTarget ? 'bg-indigo-50/50 hover:bg-indigo-100 cursor-copy' :
+                                  draggingTxId ? 'opacity-50' :
+                                  isLinking ? 'bg-indigo-50' :
+                                  selectedIds.has(tx.id) ? 'bg-indigo-50/60' : 'hover:bg-slate-50'
+                                )}
+                              >
                                 <td className="w-10 px-3 py-2.5">
                                   <input
                                     type="checkbox"
@@ -1328,9 +1363,15 @@ function AdministratieInner() {
                                 </td>
 
                                 <td className="px-4 py-2.5 max-w-xs">
-                                  <button onClick={() => openDetail(tx)} className="text-xs text-slate-700 truncate max-w-full block text-left hover:text-indigo-600 transition-colors" title={tx.description}>
-                                    {tx.description}
-                                  </button>
+                                  {isDragOver ? (
+                                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-700 bg-indigo-100 border border-indigo-300 px-2 py-0.5 rounded-full">
+                                      <Link2 size={10} />Koppelen
+                                    </span>
+                                  ) : (
+                                    <button onClick={() => openDetail(tx)} className="text-xs text-slate-700 truncate max-w-full block text-left hover:text-indigo-600 transition-colors" title={tx.description}>
+                                      {tx.description}
+                                    </button>
+                                  )}
                                 </td>
 
                                 {/* Tegenpartij */}
