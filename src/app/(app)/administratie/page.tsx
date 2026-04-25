@@ -442,9 +442,10 @@ function AdministratieInner() {
           amountDiff = Math.abs(t.amount - converted) / Math.max(Math.max(t.amount, converted), 0.01)
         }
       }
-      // 70% weight on amount match, 30% on date proximity
-      return { t, score: amountDiff * 0.7 + (daysDiff / 14) * 0.3, amountDiff }
-    }).sort((a, b) => a.score - b.score).slice(0, 8)
+      // Same-day transactions always rank first, then sort by amount match
+      const sameDayBonus = daysDiff < 1 ? 0 : 1
+      return { t, score: sameDayBonus + amountDiff * 0.6 + (daysDiff / 14) * 0.4, amountDiff }
+    }).sort((a, b) => a.score - b.score).slice(0, 10)
 
     setLinkCandidates(scored.map(s => s.t))
     setLinkLoading(false)
@@ -1486,11 +1487,15 @@ function AdministratieInner() {
                   )
                   .sort((a, b) => {
                     if (matchPopupSearch) return 0
-                    // Sort by amount similarity to the source transaction
                     const refAmount = tx.amount
+                    const refDate = new Date(tx.date).getTime()
+                    const daysDiffA = Math.abs(new Date(a.date).getTime() - refDate) / (24 * 3600 * 1000)
+                    const daysDiffB = Math.abs(new Date(b.date).getTime() - refDate) / (24 * 3600 * 1000)
                     const diffA = Math.abs(a.amount - refAmount) / Math.max(refAmount, 0.01)
                     const diffB = Math.abs(b.amount - refAmount) / Math.max(refAmount, 0.01)
-                    return diffA - diffB
+                    const scoreA = (daysDiffA < 1 ? 0 : 1) + diffA * 0.6 + (daysDiffA / 30) * 0.4
+                    const scoreB = (daysDiffB < 1 ? 0 : 1) + diffB * 0.6 + (daysDiffB / 30) * 0.4
+                    return scoreA - scoreB
                   })
                 return (
                   <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
