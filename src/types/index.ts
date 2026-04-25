@@ -1,4 +1,4 @@
-export type TransactionType = 'income' | 'expense' | 'transfer' | 'investment' | 'advance'
+export type TransactionType = 'income' | 'expense' | 'transfer' | 'investment' | 'advance' | 'aflossing'
 export type TransactionStatus = 'draft' | 'processed'
 export type BankSource = 'rabobank' | 'wise' | 'revolut' | 'ocbc' | 'manual'
 export type AccountType = 'account' | 'jar'
@@ -41,6 +41,7 @@ export interface Transaction {
   notes?: string
   vendor?: string
   counterparty?: string
+  loan_id?: string | null
   ai_categorized: boolean
   status: TransactionStatus
   source: BankSource
@@ -81,6 +82,19 @@ export interface Vendor {
   user_id: string
   name: string
   category: string
+  created_at: string
+}
+
+export interface Loan {
+  id: string
+  user_id: string
+  name: string
+  lender?: string
+  original_amount: number
+  outstanding_amount: number
+  currency: string
+  start_date?: string
+  notes?: string
   created_at: string
 }
 

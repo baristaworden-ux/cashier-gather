@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { Account, AccountBalance, Transaction, TransactionType, Vendor, AdminCategory } from '@/types'
+import { Account, AccountBalance, Transaction, TransactionType, Vendor, AdminCategory, Loan } from '@/types'
 import { formatCurrency, formatDate, cn, CURRENCIES } from '@/lib/utils'
 import { Upload, Sparkles, Search, ArrowUpDown, Link2, Unlink, PiggyBank, ChevronRight, X, Plus, Trash2, RotateCcw } from 'lucide-react'
 
@@ -43,6 +43,7 @@ function AdministratieInner() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [vendors, setVendors] = useState<Vendor[]>([])
   const [categories, setCategories] = useState<AdminCategory[]>([])
+  const [loans, setLoans] = useState<Loan[]>([])
   const [loading, setLoading] = useState(true)
   const [categorizing, setCategorizing] = useState(false)
   const [simplifying, setSimplifying] = useState(false)
@@ -82,7 +83,7 @@ function AdministratieInner() {
 
   // Transaction detail popup
   const [detailTx, setDetailTx] = useState<Transaction | null>(null)
-  const [detailEdits, setDetailEdits] = useState<{ description?: string; vendor?: string; category?: string; notes?: string; type?: TransactionType; date?: string }>({})
+  const [detailEdits, setDetailEdits] = useState<{ description?: string; vendor?: string; category?: string; notes?: string; type?: TransactionType; date?: string; loan_id?: string | null }>({})
   const [savingDetail, setSavingDetail] = useState(false)
   const [detailLinkOpen, setDetailLinkOpen] = useState(false)
   const [detailLinkAccount, setDetailLinkAccount] = useState('')
@@ -203,11 +204,12 @@ function AdministratieInner() {
 
   async function loadData() {
     setLoading(true)
-    const [accRes, txRes, vendorRes, catRes] = await Promise.all([
+    const [accRes, txRes, vendorRes, catRes, loanRes] = await Promise.all([
       fetch('/api/accounts'),
       fetch('/api/transactions?limit=500'),
       fetch('/api/vendors'),
       fetch('/api/categories'),
+      fetch('/api/loans'),
     ])
     if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []) }
     if (txRes.ok) {
@@ -217,6 +219,7 @@ function AdministratieInner() {
     }
     if (vendorRes.ok) { const d = await vendorRes.json(); setVendors(d.vendors || []) }
     if (catRes.ok) { const d = await catRes.json(); setCategories(d.categories || []) }
+    if (loanRes.ok) { const d = await loanRes.json(); setLoans(d.loans || []) }
     setLoading(false)
   }
 
@@ -503,8 +506,9 @@ function AdministratieInner() {
     })))
 
     setTransactions(txs => txs.map(t => ids.includes(t.id) ? { ...t, status: 'processed' } : t))
-    const accRes = await fetch('/api/accounts')
+    const [accRes, loanRes] = await Promise.all([fetch('/api/accounts'), fetch('/api/loans')])
     if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []) }
+    if (loanRes.ok) { const d = await loanRes.json(); setLoans(d.loans || []) }
   }
 
   async function revertTransaction(tx: Transaction) {
@@ -1265,8 +1269,9 @@ function AdministratieInner() {
                                         displayType === 'expense' ? 'bg-red-50 text-red-600' :
                                         displayType === 'transfer' ? 'bg-slate-100 text-slate-500' :
                                         displayType === 'investment' ? 'bg-blue-50 text-blue-600' :
-                                        displayType === 'advance' ? 'bg-amber-50 text-amber-600' : 'bg-slate-100 text-slate-500')}>
-                                        {displayType === 'income' ? 'Inkomen' : displayType === 'expense' ? 'Uitgave' : displayType === 'transfer' ? 'Overboeking' : displayType === 'investment' ? 'Investering' : displayType === 'advance' ? 'Voorschot' : displayType}
+                                        displayType === 'advance' ? 'bg-amber-50 text-amber-600' :
+                                        displayType === 'aflossing' ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-500')}>
+                                        {displayType === 'income' ? 'Inkomen' : displayType === 'expense' ? 'Uitgave' : displayType === 'transfer' ? 'Overboeking' : displayType === 'investment' ? 'Investering' : displayType === 'advance' ? 'Voorschot' : displayType === 'aflossing' ? 'Aflossing' : displayType}
                                       </span>
                                     )
                                   })()}
@@ -1354,8 +1359,8 @@ function AdministratieInner() {
                                 </td>
 
                                 <td className={cn('px-4 py-2.5 text-right font-semibold whitespace-nowrap text-sm',
-                                  tx.type === 'income' ? 'text-emerald-600' : tx.type === 'expense' ? 'text-red-500' : tx.type === 'investment' ? 'text-blue-600' : tx.type === 'advance' ? 'text-amber-600' : 'text-slate-500')}>
-                                  {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : tx.type === 'investment' ? '↗' : tx.type === 'advance' ? '⟳' : ''}
+                                  tx.type === 'income' ? 'text-emerald-600' : tx.type === 'expense' ? 'text-red-500' : tx.type === 'investment' ? 'text-blue-600' : tx.type === 'advance' ? 'text-amber-600' : tx.type === 'aflossing' ? 'text-rose-600' : 'text-slate-500')}>
+                                  {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : tx.type === 'investment' ? '↗' : tx.type === 'advance' ? '⟳' : tx.type === 'aflossing' ? '↘' : ''}
                                   {formatCurrency(tx.amount, tx.currency)}
                                 </td>
                                 <td className="pl-2 pr-4 py-2.5">
@@ -2156,9 +2161,29 @@ function AdministratieInner() {
                     <option value="transfer">Overboeking</option>
                     <option value="investment">Investering</option>
                     <option value="advance">Voorschot</option>
+                    <option value="aflossing">Aflossing</option>
                   </select>
                 </div>
               </div>
+
+              {/* Lening koppelen (alleen bij type aflossing) */}
+              {(detailEdits.type ?? detailTx?.type) === 'aflossing' && (
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-slate-600">Lening</label>
+                  <select
+                    value={detailEdits.loan_id !== undefined ? (detailEdits.loan_id ?? '') : (detailTx?.loan_id ?? '')}
+                    onChange={e => setDetailEdits(d => ({ ...d, loan_id: e.target.value || null }))}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white"
+                  >
+                    <option value="">— Geen lening —</option>
+                    {loans.map(l => (
+                      <option key={l.id} value={l.id}>
+                        {l.name}{l.lender ? ` (${l.lender})` : ''} · {l.currency} {l.outstanding_amount.toLocaleString('nl-NL', { minimumFractionDigits: 2 })} open
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-4">
                 {/* Leverancier */}

@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
 
   const { data: tx, error: fetchErr } = await supabase
     .from('admin_transactions')
-    .select('account_id, currency, amount, type, transfer_group_id')
+    .select('account_id, currency, amount, type, transfer_group_id, loan_id')
     .eq('id', id)
     .eq('user_id', user.id)
     .single()
@@ -83,6 +83,12 @@ export async function POST(req: NextRequest) {
         { account_id: tx.account_id, user_id: user.id, currency: tx.currency, balance, updated_at: new Date().toISOString() },
         { onConflict: 'account_id,currency' }
       )
+  }
+
+  // Recalculate loan outstanding when an aflossing is processed or reverted
+  if (tx.type === 'aflossing' && tx.loan_id) {
+    const { recalculateOutstanding } = await import('@/app/api/loans/route')
+    await recalculateOutstanding(supabase, tx.loan_id, user.id)
   }
 
   return NextResponse.json({ success: true, transferInflow })

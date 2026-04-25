@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { LogOut, Plus, Trash2, Search, PiggyBank, ChevronRight, CornerDownRight, X } from 'lucide-react'
-import { AdminCategory, Vendor, Account, AccountBalance } from '@/types'
+import { LogOut, Plus, Trash2, Search, PiggyBank, ChevronRight, CornerDownRight, X, Landmark } from 'lucide-react'
+import { AdminCategory, Vendor, Account, AccountBalance, Loan } from '@/types'
 import { cn, formatCurrency, CURRENCIES } from '@/lib/utils'
 
 const BANK_LABELS: Record<string, string> = {
@@ -57,6 +57,12 @@ export default function SettingsPage() {
   const [subError, setSubError] = useState<string | null>(null)
   const [movingCatId, setMovingCatId] = useState<string | null>(null)
 
+  // Loans
+  const [loans, setLoans] = useState<Loan[]>([])
+  const [newLoan, setNewLoan] = useState({ name: '', lender: '', original_amount: '', currency: 'EUR', start_date: '' })
+  const [savingLoan, setSavingLoan] = useState(false)
+  const [loanError, setLoanError] = useState<string | null>(null)
+
   // Vendors
   const [vendors, setVendors] = useState<Vendor[]>([])
   const [vendorSearch, setVendorSearch] = useState('')
@@ -65,14 +71,16 @@ export default function SettingsPage() {
   const [savingVendor, setSavingVendor] = useState(false)
 
   async function loadData() {
-    const [accRes, catRes, vendorRes] = await Promise.all([
+    const [accRes, catRes, vendorRes, loanRes] = await Promise.all([
       fetch('/api/accounts'),
       fetch('/api/categories'),
       fetch('/api/vendors'),
+      fetch('/api/loans'),
     ])
     if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []) }
     if (catRes.ok) { const { categories } = await catRes.json(); setCategories(categories || []) }
     if (vendorRes.ok) { const { vendors } = await vendorRes.json(); setVendors(vendors || []) }
+    if (loanRes.ok) { const { loans } = await loanRes.json(); setLoans(loans || []) }
   }
 
   useEffect(() => { loadData() }, [])
@@ -200,6 +208,31 @@ export default function SettingsPage() {
         if (res.ok) { const { category } = await res.json(); setCategories(c => [...c, category]) }
       }
     }
+  }
+
+  // ── Loans ──
+  async function addLoan() {
+    if (!newLoan.name.trim() || !newLoan.original_amount) return
+    setSavingLoan(true)
+    setLoanError(null)
+    const res = await fetch('/api/loans', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newLoan),
+    })
+    const data = await res.json()
+    if (res.ok) {
+      setLoans(l => [data.loan, ...l])
+      setNewLoan({ name: '', lender: '', original_amount: '', currency: 'EUR', start_date: '' })
+    } else {
+      setLoanError(data.error || 'Opslaan mislukt.')
+    }
+    setSavingLoan(false)
+  }
+
+  async function deleteLoan(id: string) {
+    if (!confirm('Lening verwijderen? De koppeling met transacties wordt ook verwijderd.')) return
+    await fetch(`/api/loans?id=${id}`, { method: 'DELETE' })
+    setLoans(l => l.filter(x => x.id !== id))
   }
 
   // ── Vendors ──
@@ -509,6 +542,78 @@ export default function SettingsPage() {
           {catError && (
             <div className="px-4 pb-3 text-xs text-red-500">{catError}</div>
           )}
+        </div>
+      </section>
+
+      {/* ── Leningen ── */}
+      <section className="space-y-4">
+        <h2 className="text-base font-semibold text-slate-900">Leningen</h2>
+        <p className="text-sm text-slate-500">
+          Voeg leningen toe en koppel aflossingstransacties. Het openstaande bedrag wordt automatisch bijgewerkt.
+        </p>
+        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+          {loans.length > 0 ? (
+            <div>
+              {loans.map((loan, i) => {
+                const pct = loan.original_amount > 0
+                  ? Math.round((1 - loan.outstanding_amount / loan.original_amount) * 100)
+                  : 0
+                return (
+                  <div key={loan.id} className={cn('px-4 py-3 flex items-center justify-between gap-4', i < loans.length - 1 && 'border-b border-slate-50')}>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-9 h-9 rounded-xl bg-rose-100 flex items-center justify-center shrink-0">
+                        <Landmark size={15} className="text-rose-600" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-slate-900 truncate">{loan.name}</p>
+                        <p className="text-xs text-slate-400">
+                          {loan.lender && <>{loan.lender} · </>}
+                          {loan.currency} · {pct}% afgelost
+                        </p>
+                        <div className="mt-1 w-32 bg-slate-100 rounded-full h-1.5">
+                          <div className="bg-rose-400 h-1.5 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <div className="text-right">
+                        <p className="text-sm font-semibold text-rose-600">{formatCurrency(loan.outstanding_amount, loan.currency)}</p>
+                        <p className="text-xs text-slate-400">van {formatCurrency(loan.original_amount, loan.currency)}</p>
+                      </div>
+                      <button onClick={() => deleteLoan(loan.id)} className="text-slate-300 hover:text-red-400 transition-colors p-1">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-400 italic px-4 py-4">Nog geen leningen.</p>
+          )}
+          <div className={cn('flex flex-wrap gap-2 px-4 py-3', loans.length > 0 && 'border-t border-slate-100')}>
+            <input type="text" placeholder="Naam lening…" value={newLoan.name}
+              onChange={e => setNewLoan(l => ({ ...l, name: e.target.value }))}
+              className="flex-1 min-w-36 px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+            <input type="text" placeholder="Schuldeiser (optioneel)…" value={newLoan.lender}
+              onChange={e => setNewLoan(l => ({ ...l, lender: e.target.value }))}
+              className="flex-1 min-w-36 px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+            <input type="number" placeholder="Bedrag" value={newLoan.original_amount}
+              onChange={e => setNewLoan(l => ({ ...l, original_amount: e.target.value }))}
+              className="w-32 px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+            <select value={newLoan.currency} onChange={e => setNewLoan(l => ({ ...l, currency: e.target.value }))}
+              className="w-24 px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
+              {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <input type="date" value={newLoan.start_date}
+              onChange={e => setNewLoan(l => ({ ...l, start_date: e.target.value }))}
+              className="w-36 px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+            <button onClick={addLoan} disabled={!newLoan.name.trim() || !newLoan.original_amount || savingLoan}
+              className="px-3 py-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg text-sm transition-colors disabled:opacity-50">
+              {savingLoan ? '…' : <Plus size={14} />}
+            </button>
+          </div>
+          {loanError && <div className="px-4 pb-3 text-xs text-red-600">✗ {loanError}</div>}
         </div>
       </section>
 
