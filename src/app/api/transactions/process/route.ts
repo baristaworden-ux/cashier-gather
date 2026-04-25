@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
 
   // Recalculate loan outstanding when an aflossing is processed or reverted
   if (tx.type === 'aflossing' && tx.loan_id) {
-    const { recalculateOutstanding } = await import('@/app/api/loans/route')
+    const { recalculateOutstanding } = await import('@/lib/loans')
     await recalculateOutstanding(supabase, tx.loan_id, user.id)
   }
 
