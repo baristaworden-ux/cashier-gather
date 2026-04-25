@@ -75,14 +75,14 @@ Rules:
 - "tx_id": the transaction reference/payment ref shown below the description — omit if not present
 
 For Rabobank PDFs specifically:
-- The table columns are: Value date | Type code | Counterparty account | Name/description | Debit amount | Credit amount
-- "Debit amount" column = expense (money leaving the account)
-- "Credit amount" column = income (money entering the account)
-- If a row has a value in the Debit amount column → type "expense"
-- If a row has a value in the Credit amount column → type "income"
-- "description": use the Name/description field (counterparty name + first description line, e.g. "OOM HOLDING NV Premie polis 7323035", "Rabobank Rabo TotaalPakket", "P.H.M. Leblanc Aanbetaling Vinmec")
-- "tx_id": use the Payment ref. value (e.g. "OO9T005416714232", "44041691568")
-- Skip rows that are opening/closing balance summaries
+- Each transaction row starts with a date and a two-letter type code (e.g. "02-01 ei ...", "04-01 cb ...")
+- Use the type code as the PRIMARY indicator of income vs expense — it is more reliable than column position:
+  - INCOME type codes (money coming IN to your account): cb, sb, st, te, we, wr
+  - EXPENSE type codes (money going OUT of your account): ei, eb, id, db, bc, ec, bg, bv, ga, gb, kh, ok, sp, tb, wb
+  - Exception: if description contains "Retour" or "retour", always use "income" regardless of type code
+- Extract the "tx_id" from "Payment ref." line (e.g. "OO9T005416714232", "44041691568", "NP8A000282380387")
+- "description": counterparty Name + first meaningful description line (e.g. "OOM HOLDING NV Premie polis 7323035", "Rabobank Rabo TotaalPakket", "P.H.M. Leblanc Aanbetaling Vinmec", "Wise TW Payment 1953936882")
+- Skip opening/closing balance summary rows
 
 For Wise PDFs specifically:
 - The table has columns: Description | Incoming | Outgoing | Amount (running balance)
