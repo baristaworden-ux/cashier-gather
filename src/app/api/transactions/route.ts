@@ -54,7 +54,7 @@ export async function DELETE(req: NextRequest) {
 
   const { data: tx } = await supabase
     .from('admin_transactions')
-    .select('id')
+    .select('id, account_id, currency, status, type, transfer_group_id')
     .eq('id', id)
     .eq('user_id', user.id)
     .single()
@@ -68,5 +68,48 @@ export async function DELETE(req: NextRequest) {
     .eq('user_id', user.id)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Recalculate balance after delete (only processed transactions affect balance)
+  if (tx.status === 'processed') {
+    const { data: processedTxs } = await supabase
+      .from('admin_transactions')
+      .select('id, amount, type, transfer_group_id')
+      .eq('account_id', tx.account_id)
+      .eq('currency', tx.currency)
+      .eq('status', 'processed')
+
+    if (processedTxs) {
+      const transferGroupIds = processedTxs
+        .filter(t => t.type === 'transfer' && t.transfer_group_id)
+        .map(t => t.transfer_group_id as string)
+
+      let inboundTransferIds = new Set<string>()
+      if (transferGroupIds.length > 0) {
+        const { data: siblings } = await supabase
+          .from('admin_transactions')
+          .select('transfer_group_id, account_id')
+          .in('transfer_group_id', transferGroupIds)
+          .neq('account_id', tx.account_id)
+          .eq('user_id', user.id)
+        if (siblings) {
+          inboundTransferIds = new Set(siblings.map(s => s.transfer_group_id as string))
+        }
+      }
+
+      const balance = processedTxs.reduce((sum, t) => {
+        if (t.type === 'income') return sum + t.amount
+        if (t.type === 'transfer' && t.transfer_group_id && inboundTransferIds.has(t.transfer_group_id)) return sum + t.amount
+        return sum - t.amount
+      }, 0)
+
+      await supabase
+        .from('admin_account_balances')
+        .upsert(
+          { account_id: tx.account_id, user_id: user.id, currency: tx.currency, balance, updated_at: new Date().toISOString() },
+          { onConflict: 'account_id,currency' }
+        )
+    }
+  }
+
   return NextResponse.json({ success: true })
 }
