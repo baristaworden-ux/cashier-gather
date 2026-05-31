@@ -232,7 +232,17 @@ export async function POST(req: NextRequest) {
 
       const existingHashes = new Set((existing || []).map((r: { import_hash: string }) => r.import_hash))
 
-      const skippedHere = txs.filter(t => existingHashes.has(t.import_hash))
+      // Deduplicate within the batch: if the same hash appears multiple times in this
+      // file (e.g. identical "Revpoints Spare change" entries), suffix each occurrence
+      // beyond the first so they get unique hashes and all get inserted.
+      const batchHashCount = new Map<string, number>()
+      const dedupedTxs = txs.map(t => {
+        const count = batchHashCount.get(t.import_hash) ?? 0
+        batchHashCount.set(t.import_hash, count + 1)
+        return count === 0 ? t : { ...t, import_hash: `${t.import_hash}-${count}` }
+      })
+
+      const skippedHere = dedupedTxs.filter(t => existingHashes.has(t.import_hash))
       skippedDetails.push(...skippedHere.map(t => ({
         date: t.date,
         description: t.description,
@@ -242,7 +252,7 @@ export async function POST(req: NextRequest) {
         reason: 'exists_in_db' as const,
       })))
 
-      const toInsert = txs
+      const toInsert = dedupedTxs
         .filter(t => !existingHashes.has(t.import_hash))
         .map(t => {
           const match = matchVendor(t.description)
