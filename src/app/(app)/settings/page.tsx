@@ -34,6 +34,7 @@ export default function SettingsPage() {
   const supabase = createClient()
   const router = useRouter()
   const [signingOut, setSigningOut] = useState(false)
+  const [clearingAll, setClearingAll] = useState(false)
 
   // Accounts & jars
   const [accounts, setAccounts] = useState<Account[]>([])
@@ -84,6 +85,14 @@ export default function SettingsPage() {
   }
 
   useEffect(() => { loadData() }, [])
+
+  async function clearAllTransactions() {
+    if (!confirm('Alle transacties verwijderen en balansen op 0 zetten? Dit kan niet ongedaan worden gemaakt.')) return
+    setClearingAll(true)
+    await fetch('/api/transactions/clear-all', { method: 'POST' })
+    setClearingAll(false)
+    await loadData()
+  }
 
   async function handleSignOut() {
     setSigningOut(true)
@@ -678,6 +687,22 @@ export default function SettingsPage() {
               <Plus size={14} />
             </button>
           </div>
+        </div>
+      </section>
+
+      {/* ── Gegevens ── */}
+      <section className="space-y-4">
+        <h2 className="text-base font-semibold text-slate-900">Gegevens</h2>
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
+          <div>
+            <p className="text-sm font-medium text-slate-800">Alle transacties wissen</p>
+            <p className="text-xs text-slate-400 mt-0.5">Verwijdert alle transacties en reset alle balansen naar 0. Rekeningen en categorieën blijven behouden.</p>
+          </div>
+          <button onClick={clearAllTransactions} disabled={clearingAll}
+            className="flex items-center gap-2 px-4 py-2 border border-red-200 text-red-600 hover:bg-red-50 rounded-xl text-sm font-medium transition-colors disabled:opacity-50">
+            <Trash2 size={15} />
+            {clearingAll ? 'Wissen…' : 'Alle transacties wissen'}
+          </button>
         </div>
       </section>
 
