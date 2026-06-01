@@ -1226,10 +1226,10 @@ function AdministratieInner() {
                 ? <p className="text-sm text-slate-400 italic text-center py-12">Geen transacties gevonden.</p>
                 : (
                   <div className="bg-white border border-slate-200 rounded-2xl overflow-x-auto" ref={linkRef}>
-                    <table className="w-full min-w-[640px] text-sm">
+                    <table className="w-full min-w-[500px] text-sm">
                       <thead>
                         <tr className="border-b border-slate-100">
-                          <th className="w-10 px-3 py-3">
+                          <th className="w-8 px-2 py-2.5">
                             <input
                               type="checkbox"
                               className="rounded border-slate-300 text-indigo-500 cursor-pointer"
@@ -1245,7 +1245,7 @@ function AdministratieInner() {
                               const active = sortKey === asc || sortKey === desc
                               const toggle = () => setSortKey(sortKey === asc ? desc : asc)
                               return (
-                                <th onClick={toggle} className={cn('px-3 py-3 text-xs font-semibold uppercase tracking-wide cursor-pointer select-none group', right ? 'text-right' : 'text-left', active ? 'text-indigo-600' : 'text-slate-500 hover:text-slate-800', className)}>
+                                <th onClick={toggle} className={cn('px-2 py-2.5 text-xs font-semibold uppercase tracking-wide cursor-pointer select-none group', right ? 'text-right' : 'text-left', active ? 'text-indigo-600' : 'text-slate-500 hover:text-slate-800', className)}>
                                   <span className="inline-flex items-center gap-1">
                                     {!right && label}
                                     <span className="opacity-50 group-hover:opacity-100">{sortKey === asc ? '↑' : sortKey === desc ? '↓' : '↕'}</span>
@@ -1256,15 +1256,12 @@ function AdministratieInner() {
                             }
                             return (
                               <>
-                                <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden sm:table-cell w-32">Bank / Jar</th>
-                                <SortTh label="Type" asc="type_asc" desc="type_desc" className="hidden md:table-cell" />
-                                <SortTh label="Datum" asc="date_asc" desc="date_desc" className="w-24" />
-                                <SortTh label="Leverancier" asc="vendor_asc" desc="vendor_desc" className="w-28 hidden md:table-cell" />
+                                <SortTh label="Type" asc="type_asc" desc="type_desc" className="w-24" />
+                                <SortTh label="Datum" asc="date_asc" desc="date_desc" className="w-20" />
                                 <SortTh label="Omschrijving" asc="description_asc" desc="description_desc" />
-                                <SortTh label="Categorie" asc="category_asc" desc="category_desc" className="hidden lg:table-cell w-28" />
-                                <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden lg:table-cell w-24">Koppeling</th>
-                                <SortTh label="Bedrag" asc="amount_asc" desc="amount_desc" right />
-                                <th className="w-20 pr-3" />
+                                <SortTh label="Categorie" asc="category_asc" desc="category_desc" className="w-32" />
+                                <SortTh label="Bedrag" asc="amount_asc" desc="amount_desc" right className="w-28" />
+                                <th className="w-16 pr-2" />
                               </>
                             )
                           })()}
@@ -1299,7 +1296,7 @@ function AdministratieInner() {
                                   selectedIds.has(tx.id) ? 'bg-indigo-50/60' : 'hover:bg-slate-50'
                                 )}
                               >
-                                <td className="w-10 px-3 py-2.5">
+                                <td className="w-8 px-2 py-2">
                                   <input
                                     type="checkbox"
                                     className="rounded border-slate-300 text-indigo-500 cursor-pointer"
@@ -1311,75 +1308,66 @@ function AdministratieInner() {
                                     })}
                                   />
                                 </td>
-                                {/* Bank dot + jar name */}
-                                <td className="px-3 py-2 hidden sm:table-cell w-32">
-                                  <div className="flex items-center gap-1.5 min-w-0">
-                                    <span className={cn('w-2 h-2 rounded-full shrink-0', BANK_COLORS[tx.source] ?? 'bg-slate-400')} />
-                                    {accountMap[tx.account_id]?.account_type === 'jar' ? (
-                                      <span className="flex items-center gap-1 min-w-0">
-                                        <PiggyBank size={10} className="text-amber-500 shrink-0" />
-                                        <span className="text-xs text-amber-700 truncate">{accountMap[tx.account_id]?.name}</span>
-                                      </span>
-                                    ) : (
-                                      <span className="text-xs text-slate-400 truncate">{BANK_SHORT[tx.source] ?? tx.source}</span>
-                                    )}
-                                  </div>
-                                </td>
-                                <td className="px-3 py-2 hidden md:table-cell">
+
+                                {/* Type + bank dot */}
+                                <td className="px-2 py-2 w-24">
                                   {(() => {
                                     const isTransferCredit = tx.type === 'income' && !!tx.transfer_group_id
                                     const displayType = isTransferCredit ? 'transfer' : tx.type
                                     return (
-                                      <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap',
-                                        displayType === 'income' ? 'bg-emerald-50 text-emerald-700' :
-                                        displayType === 'expense' ? 'bg-red-50 text-red-600' :
-                                        displayType === 'transfer' ? 'bg-slate-100 text-slate-500' :
-                                        displayType === 'investment' ? 'bg-blue-50 text-blue-600' :
-                                        displayType === 'advance' ? 'bg-amber-50 text-amber-600' :
-                                        displayType === 'aflossing' ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-500')}>
-                                        {displayType === 'income' ? 'Inkomen' : displayType === 'expense' ? 'Uitgave' : displayType === 'transfer' ? 'Overboeking' : displayType === 'investment' ? 'Investering' : displayType === 'advance' ? 'Voorschot' : displayType === 'aflossing' ? 'Aflossing' : displayType}
-                                      </span>
+                                      <div className="flex items-center gap-1.5">
+                                        <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', BANK_COLORS[tx.source] ?? 'bg-slate-400')} />
+                                        <span className={cn('text-xs font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap',
+                                          displayType === 'income' ? 'bg-emerald-50 text-emerald-700' :
+                                          displayType === 'expense' ? 'bg-red-50 text-red-600' :
+                                          displayType === 'transfer' ? 'bg-slate-100 text-slate-500' :
+                                          displayType === 'investment' ? 'bg-blue-50 text-blue-600' :
+                                          displayType === 'advance' ? 'bg-amber-50 text-amber-600' :
+                                          displayType === 'aflossing' ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-500')}>
+                                          {displayType === 'income' ? 'Inkomen' : displayType === 'expense' ? 'Uitgave' : displayType === 'transfer' ? 'Overboeking' : displayType === 'investment' ? 'Investering' : displayType === 'advance' ? 'Voorschot' : displayType === 'aflossing' ? 'Aflossing' : displayType}
+                                        </span>
+                                      </div>
                                     )
                                   })()}
                                 </td>
-                                <td className="px-3 py-2 text-xs text-slate-500 whitespace-nowrap">{formatDate(tx.date)}</td>
 
-                                {/* Leverancier — clickable */}
-                                <td className="px-3 py-2 hidden md:table-cell">
-                                  <button
-                                    onClick={e => openCellDropdown(tx, 'vendor', e)}
-                                    className={cn(
-                                      'text-xs px-2 py-1 rounded-lg border transition-colors text-left w-full truncate max-w-[110px]',
-                                      cellDropdown?.txId === tx.id && cellDropdown.field === 'vendor'
-                                        ? 'border-indigo-400 bg-indigo-50 text-indigo-700'
-                                        : tx.vendor
-                                          ? 'border-transparent hover:border-slate-200 text-slate-800 font-medium'
-                                          : 'border-transparent hover:border-slate-200 text-slate-400 italic'
-                                    )}
-                                  >
-                                    {tx.vendor || '—'}
-                                  </button>
-                                </td>
+                                <td className="px-2 py-2 text-xs text-slate-500 whitespace-nowrap w-20">{formatDate(tx.date)}</td>
 
-                                <td className="px-3 py-2 max-w-xs">
+                                {/* Omschrijving + leverancier als subtekst */}
+                                <td className="px-2 py-2">
                                   {isDragOver ? (
                                     <span className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-700 bg-indigo-100 border border-indigo-300 px-2 py-0.5 rounded-full">
                                       <Link2 size={10} />Koppelen
                                     </span>
                                   ) : (
-                                    <button onClick={() => openDetail(tx)} className="text-xs text-slate-700 truncate max-w-full block text-left hover:text-indigo-600 transition-colors" title={`${tx.description}${tx.counterparty ? ` · ${tx.counterparty}` : ''}`}>
-                                      {tx.description}
-                                      {tx.counterparty && <span className="text-slate-400 ml-1">· {tx.counterparty}</span>}
-                                    </button>
+                                    <div className="min-w-0">
+                                      <button onClick={() => openDetail(tx)} className="text-xs text-slate-700 truncate max-w-full block text-left hover:text-indigo-600 transition-colors" title={`${tx.description}${tx.counterparty ? ` · ${tx.counterparty}` : ''}`}>
+                                        {tx.description}
+                                        {tx.counterparty && <span className="text-slate-400 ml-1">· {tx.counterparty}</span>}
+                                      </button>
+                                      <button
+                                        onClick={e => openCellDropdown(tx, 'vendor', e)}
+                                        className={cn(
+                                          'text-xs transition-colors text-left truncate max-w-full block',
+                                          cellDropdown?.txId === tx.id && cellDropdown.field === 'vendor'
+                                            ? 'text-indigo-600'
+                                            : tx.vendor
+                                              ? 'text-slate-400 hover:text-slate-600'
+                                              : 'text-slate-300 italic hover:text-slate-400'
+                                        )}
+                                      >
+                                        {tx.vendor || 'leverancier…'}
+                                      </button>
+                                    </div>
                                   )}
                                 </td>
 
                                 {/* Categorie — clickable */}
-                                <td className="px-3 py-2 hidden lg:table-cell">
+                                <td className="px-2 py-2 w-32">
                                   <button
                                     onClick={e => openCellDropdown(tx, 'category', e)}
                                     className={cn(
-                                      'text-xs font-medium px-2 py-0.5 rounded-full border transition-colors whitespace-nowrap',
+                                      'text-xs font-medium px-1.5 py-0.5 rounded-full border transition-colors whitespace-nowrap',
                                       cellDropdown?.txId === tx.id && cellDropdown.field === 'category'
                                         ? 'border-indigo-400 bg-indigo-50 text-indigo-700'
                                         : tx.category
@@ -1391,64 +1379,64 @@ function AdministratieInner() {
                                   </button>
                                 </td>
 
-                                {/* Koppeling */}
-                                <td className="px-3 py-2 hidden lg:table-cell">
+                                {/* Bedrag + koppeling inline */}
+                                <td className={cn('px-2 py-2 text-right w-28',
+                                  tx.type === 'income' ? 'text-emerald-600' : tx.type === 'expense' ? 'text-red-500' : tx.type === 'investment' ? 'text-blue-600' : tx.type === 'advance' ? 'text-amber-600' : tx.type === 'aflossing' ? 'text-rose-600' : 'text-slate-500')}>
+                                  <div className="font-semibold whitespace-nowrap text-sm">
+                                    {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : tx.type === 'investment' ? '↗' : tx.type === 'advance' ? '⟳' : tx.type === 'aflossing' ? '↘' : ''}
+                                    {formatCurrency(tx.amount, tx.currency)}
+                                  </div>
+                                  {/* Koppeling onder bedrag */}
                                   {linkedTx ? (
-                                    <div className="flex items-center gap-1">
-                                      <span className="text-xs bg-indigo-50 text-indigo-600 border border-indigo-200 px-2 py-0.5 rounded-full font-medium flex items-center gap-1 truncate max-w-[80px]">
-                                        <Link2 size={10} className="shrink-0" />
+                                    <div className="flex items-center justify-end gap-0.5 mt-0.5">
+                                      <span className="text-xs text-indigo-500 flex items-center gap-0.5 truncate max-w-[90px]">
+                                        <Link2 size={9} className="shrink-0" />
                                         {accountMap[linkedTx.account_id]?.name ?? '—'}
                                       </span>
-                                      <button onClick={() => unlinkTransaction(tx)} className="text-slate-300 hover:text-red-400 transition-colors shrink-0"><Unlink size={12} /></button>
+                                      <button onClick={() => unlinkTransaction(tx)} className="text-slate-300 hover:text-red-400 transition-colors shrink-0"><Unlink size={10} /></button>
                                     </div>
                                   ) : aiMatches[tx.id] ? (
-                                    <div className="flex items-center gap-1">
+                                    <div className="flex items-center justify-end gap-0.5 mt-0.5">
                                       <button onClick={() => openMatchPopup(tx)}
-                                        className="flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border transition-colors bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100">
-                                        <Sparkles size={10} />Match
+                                        className="flex items-center gap-0.5 text-xs font-medium text-amber-600 hover:text-amber-700">
+                                        <Sparkles size={9} />Match
                                       </button>
                                       <button onClick={() => setAiMatches(m => { const next = { ...m }; const mid = m[tx.id]; delete next[tx.id]; if (mid) delete next[mid]; return next })}
-                                        className="text-slate-300 hover:text-slate-500 transition-colors"><X size={11} /></button>
+                                        className="text-slate-300 hover:text-slate-500 transition-colors"><X size={10} /></button>
                                     </div>
                                   ) : tx.type === 'transfer' ? (
                                     <button onClick={() => openLinkPanel(tx)}
-                                      className={cn('flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border transition-colors',
-                                        isLinking ? 'bg-indigo-100 border-indigo-300 text-indigo-700' : 'border-slate-200 text-slate-400 hover:border-indigo-300 hover:text-indigo-600')}>
-                                      <Link2 size={10} />Koppelen
+                                      className={cn('flex items-center justify-end gap-0.5 text-xs mt-0.5 w-full',
+                                        isLinking ? 'text-indigo-600' : 'text-slate-400 hover:text-indigo-500')}>
+                                      <Link2 size={9} />Koppelen
                                     </button>
                                   ) : null}
                                 </td>
-
-                                <td className={cn('px-3 py-2 text-right font-semibold whitespace-nowrap text-sm',
-                                  tx.type === 'income' ? 'text-emerald-600' : tx.type === 'expense' ? 'text-red-500' : tx.type === 'investment' ? 'text-blue-600' : tx.type === 'advance' ? 'text-amber-600' : tx.type === 'aflossing' ? 'text-rose-600' : 'text-slate-500')}>
-                                  {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : tx.type === 'investment' ? '↗' : tx.type === 'advance' ? '⟳' : tx.type === 'aflossing' ? '↘' : ''}
-                                  {formatCurrency(tx.amount, tx.currency)}
-                                </td>
-                                <td className="pl-1 pr-3 py-2">
+                                <td className="pl-1 pr-2 py-2 w-16">
                                   <div className="flex items-center gap-1 justify-end">
                                     {txTab === 'draft' ? (
                                       <>
                                         <button
                                           onClick={() => processTransaction(tx)}
-                                          className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg transition-colors whitespace-nowrap"
+                                          className="flex items-center gap-0.5 text-xs font-semibold px-2 py-1 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg transition-colors whitespace-nowrap"
                                         >
                                           <Plus size={11} />Add
                                         </button>
                                         <button
                                           onClick={() => deleteTransaction(tx)}
-                                          className="p-1.5 text-slate-300 hover:text-red-400 hover:bg-red-50 rounded-lg transition-colors"
+                                          className="p-1 text-slate-300 hover:text-red-400 hover:bg-red-50 rounded-lg transition-colors"
                                           title="Verwijderen"
                                         >
-                                          <Trash2 size={13} />
+                                          <Trash2 size={12} />
                                         </button>
                                       </>
                                     ) : (
                                       <button
                                         onClick={() => revertTransaction(tx)}
-                                        className="flex items-center gap-1 text-xs px-2 py-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors whitespace-nowrap"
+                                        className="p-1 text-slate-300 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
                                         title="Terugzetten naar draft"
                                       >
-                                        <RotateCcw size={11} />Terugzetten
+                                        <RotateCcw size={12} />
                                       </button>
                                     )}
                                   </div>
