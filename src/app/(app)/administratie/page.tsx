@@ -10,10 +10,6 @@ const BANK_LABELS: Record<string, string> = {
   rabobank: 'Rabobank', wise: 'Wise', revolut: 'Revolut',
   ocbc: 'OCBC Indonesia', manual: 'Handmatig',
 }
-const BANK_SHORT: Record<string, string> = {
-  rabobank: 'Rabobank', wise: 'Wise', revolut: 'Revolut',
-  ocbc: 'OCBC', manual: 'Handmatig',
-}
 const BANK_COLORS: Record<string, string> = {
   rabobank: 'bg-orange-500', wise: 'bg-green-500', revolut: 'bg-violet-500',
   ocbc: 'bg-red-500', manual: 'bg-slate-400',
