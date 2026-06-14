@@ -128,6 +128,9 @@ function AdministratieInner() {
   const [expandedBankIds, setExpandedBankIds] = useState<Set<string>>(new Set())
   const [accountTxPanel, setAccountTxPanel] = useState<string | null>(null)
   const [categoryTxPanel, setCategoryTxPanel] = useState<string | null>(null)
+  const [categoryTxSearch, setCategoryTxSearch] = useState('')
+  const [categoryTxFrom, setCategoryTxFrom] = useState('')
+  const [categoryTxTo, setCategoryTxTo] = useState('')
   const [reportCmpFrom, setReportCmpFrom] = useState('')
   const [reportCmpTo, setReportCmpTo] = useState('')
 
@@ -2151,7 +2154,7 @@ function AdministratieInner() {
                         <h3 className="text-sm font-semibold text-emerald-800">Inkomen</h3>
                       </div>
                       {reportIncomeRows.map((row, i) => (
-                        <button key={row.cat} onClick={() => setCategoryTxPanel(row.cat)} className={cn('w-full flex items-center justify-between px-4 py-2.5 hover:bg-slate-50 transition-colors', i < reportIncomeRows.length - 1 && 'border-b border-slate-50')}>
+                        <button key={row.cat} onClick={() => { setCategoryTxPanel(row.cat); setCategoryTxSearch(''); setCategoryTxFrom(reportFrom); setCategoryTxTo(reportTo) }} className={cn('w-full flex items-center justify-between px-4 py-2.5 hover:bg-slate-50 transition-colors', i < reportIncomeRows.length - 1 && 'border-b border-slate-50')}>
                           <span className="text-sm text-slate-700">{row.cat}</span>
                           <span className="text-sm font-medium text-emerald-600 tabular-nums">{formatCurrency(row.income, reportCurrency)}</span>
                         </button>
@@ -2170,7 +2173,7 @@ function AdministratieInner() {
                         <h3 className="text-sm font-semibold text-red-800">Uitgaven</h3>
                       </div>
                       {reportExpenseRows.map((row, i) => (
-                        <button key={row.cat} onClick={() => setCategoryTxPanel(row.cat)} className={cn('w-full flex items-center justify-between px-4 py-2.5 hover:bg-slate-50 transition-colors', i < reportExpenseRows.length - 1 && 'border-b border-slate-50')}>
+                        <button key={row.cat} onClick={() => { setCategoryTxPanel(row.cat); setCategoryTxSearch(''); setCategoryTxFrom(reportFrom); setCategoryTxTo(reportTo) }} className={cn('w-full flex items-center justify-between px-4 py-2.5 hover:bg-slate-50 transition-colors', i < reportExpenseRows.length - 1 && 'border-b border-slate-50')}>
                           <span className="text-sm text-slate-700">{row.cat}</span>
                           <span className="text-sm font-medium text-red-500 tabular-nums">{formatCurrency(row.expense, reportCurrency)}</span>
                         </button>
@@ -2189,7 +2192,7 @@ function AdministratieInner() {
                         <h3 className="text-sm font-semibold text-blue-800">Investeringen</h3>
                       </div>
                       {reportInvestmentRows.map((row, i) => (
-                        <button key={row.cat} onClick={() => setCategoryTxPanel(row.cat)} className={cn('w-full flex items-center justify-between px-4 py-2.5 hover:bg-slate-50 transition-colors', i < reportInvestmentRows.length - 1 && 'border-b border-slate-50')}>
+                        <button key={row.cat} onClick={() => { setCategoryTxPanel(row.cat); setCategoryTxSearch(''); setCategoryTxFrom(reportFrom); setCategoryTxTo(reportTo) }} className={cn('w-full flex items-center justify-between px-4 py-2.5 hover:bg-slate-50 transition-colors', i < reportInvestmentRows.length - 1 && 'border-b border-slate-50')}>
                           <span className="text-sm text-slate-700">{row.cat}</span>
                           <span className="text-sm font-medium text-blue-600 tabular-nums">{formatCurrency(row.investment, reportCurrency)}</span>
                         </button>
@@ -2238,27 +2241,50 @@ function AdministratieInner() {
 
       {/* ── CATEGORY TRANSACTIONS PANEL ── */}
       {categoryTxPanel && (() => {
+        const q = categoryTxSearch.toLowerCase()
         const catTxs = transactions
           .filter(t =>
             (t.category || 'Zonder categorie') === categoryTxPanel &&
             t.status === 'processed' &&
-            t.date >= reportFrom && t.date <= reportTo &&
-            t.currency === reportCurrency
+            t.date >= (categoryTxFrom || reportFrom) && t.date <= (categoryTxTo || reportTo) &&
+            t.currency === reportCurrency &&
+            (!q || t.description.toLowerCase().includes(q) || (t.vendor ?? '').toLowerCase().includes(q))
           )
           .sort((a, b) => b.date.localeCompare(a.date))
         const total = catTxs.reduce((s, t) =>
-          s + (t.type === 'income' ? t.amount : t.type === 'terugboeking' ? -t.amount : -t.amount), 0)
+          s + (t.type === 'income' ? t.amount : -t.amount), 0)
         return (
           <div className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-sm" onClick={() => setCategoryTxPanel(null)}>
             <div className="bg-white w-full max-w-md h-full flex flex-col shadow-xl" onClick={e => e.stopPropagation()}>
               <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
                 <div>
                   <h2 className="text-base font-semibold text-slate-900">{categoryTxPanel}</h2>
-                  <p className="text-xs text-slate-400 mt-0.5">{reportFrom} – {reportTo} · {reportCurrency}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">{reportCurrency}</p>
                 </div>
                 <button onClick={() => setCategoryTxPanel(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
                   <X size={16} />
                 </button>
+              </div>
+              {/* Search + date filters */}
+              <div className="px-5 py-3 border-b border-slate-100 space-y-2">
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  <input
+                    autoFocus
+                    type="text"
+                    placeholder="Zoeken…"
+                    value={categoryTxSearch}
+                    onChange={e => setCategoryTxSearch(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <input type="date" value={categoryTxFrom} onChange={e => setCategoryTxFrom(e.target.value)}
+                    className="flex-1 px-2 py-1.5 text-xs border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+                  <span className="text-xs text-slate-400">–</span>
+                  <input type="date" value={categoryTxTo} onChange={e => setCategoryTxTo(e.target.value)}
+                    className="flex-1 px-2 py-1.5 text-xs border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+                </div>
               </div>
               <div className="flex-1 overflow-y-auto divide-y divide-slate-50">
                 {catTxs.length === 0 && (
