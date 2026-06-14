@@ -57,6 +57,7 @@ export default function SettingsPage() {
   const [savingSub, setSavingSub] = useState(false)
   const [subError, setSubError] = useState<string | null>(null)
   const [movingCatId, setMovingCatId] = useState<string | null>(null)
+  const [editingTypeId, setEditingTypeId] = useState<string | null>(null)
 
   // Loans
   const [loans, setLoans] = useState<Loan[]>([])
@@ -183,6 +184,17 @@ export default function SettingsPage() {
   async function deleteCategory(id: string) {
     await fetch(`/api/categories?id=${id}`, { method: 'DELETE' })
     setCategories(c => c.filter(x => x.id !== id))
+  }
+
+  async function updateCategoryType(id: string, type: string) {
+    const res = await fetch('/api/categories', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, type }),
+    })
+    if (res.ok) {
+      setCategories(c => c.map(x => x.id === id ? { ...x, type: type as AdminCategory['type'] } : x))
+    }
+    setEditingTypeId(null)
   }
 
   async function moveToSubCategory(id: string, parentId: string) {
@@ -439,13 +451,27 @@ export default function SettingsPage() {
                 <div className="flex items-center justify-between px-4 py-3">
                   <span className="text-sm font-semibold text-slate-900">{cat.name}</span>
                   <div className="flex items-center gap-2">
-                    <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full',
-                      cat.type === 'income' ? 'bg-emerald-100 text-emerald-700' :
-                      cat.type === 'advance' ? 'bg-amber-100 text-amber-700' :
-                      cat.type === 'investment' ? 'bg-blue-100 text-blue-700' :
-                      'bg-red-100 text-red-600')}>
-                      {cat.type === 'income' ? 'Inkomsten' : cat.type === 'advance' ? 'Voorschot' : cat.type === 'investment' ? 'Investering' : 'Uitgaven'}
-                    </span>
+                    {editingTypeId === cat.id ? (
+                      <select autoFocus defaultValue={cat.type}
+                        onBlur={() => setEditingTypeId(null)}
+                        onChange={e => updateCategoryType(cat.id, e.target.value)}
+                        className="text-xs border border-indigo-300 rounded-full px-2 py-0.5 outline-none bg-white">
+                        <option value="expense">Uitgaven</option>
+                        <option value="income">Inkomsten</option>
+                        <option value="investment">Investering</option>
+                        <option value="advance">Voorschot</option>
+                      </select>
+                    ) : (
+                      <button onClick={() => setEditingTypeId(cat.id)}
+                        title="Klik om type te wijzigen"
+                        className={cn('text-xs font-medium px-2 py-0.5 rounded-full cursor-pointer hover:opacity-70',
+                          cat.type === 'income' ? 'bg-emerald-100 text-emerald-700' :
+                          cat.type === 'advance' ? 'bg-amber-100 text-amber-700' :
+                          cat.type === 'investment' ? 'bg-blue-100 text-blue-700' :
+                          'bg-red-100 text-red-600')}>
+                        {cat.type === 'income' ? 'Inkomsten' : cat.type === 'advance' ? 'Voorschot' : cat.type === 'investment' ? 'Investering' : 'Uitgaven'}
+                      </button>
+                    )}
                     <button
                       onClick={() => setMovingCatId(movingCatId === cat.id ? null : cat.id)}
                       className="text-slate-300 hover:text-violet-500 transition-colors p-1" title="Verplaats naar subcategorie">
