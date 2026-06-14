@@ -127,6 +127,7 @@ function AdministratieInner() {
   const [reportCurrency, setReportCurrency] = useState('EUR')
   const [reportSort] = useState<ReportSort>('expense_desc')
   const [reportCompare, setReportCompare] = useState(false)
+  const [expandedBankIds, setExpandedBankIds] = useState<Set<string>>(new Set())
   const [reportCmpFrom, setReportCmpFrom] = useState('')
   const [reportCmpTo, setReportCmpTo] = useState('')
 
@@ -863,14 +864,27 @@ function AdministratieInner() {
   const reportExpenseRows    = reportRows.filter(r => r.expense > 0).sort((a, b) => b.expense - a.expense)
   const reportInvestmentRows = reportRows.filter(r => r.investment > 0).sort((a, b) => b.investment - a.investment)
 
-  // Bank balances filtered by reportCurrency
-  const reportAccountBalances = accounts
-    .filter(a => a.account_type !== 'jar')
-    .map(acc => ({
-      account: acc,
-      balance: balances.find(b => b.account_id === acc.id && b.currency === reportCurrency)?.balance ?? null,
-    }))
-    .filter(r => r.balance !== null)
+  // Bank balances: per account, all currencies, jars included as subtotals
+  const regularAccounts2 = accounts.filter(a => a.account_type !== 'jar')
+  const reportAccountBalances = regularAccounts2.map(acc => {
+    const linkedJars = accounts.filter(a => a.account_type === 'jar' && a.linked_account_id === acc.id)
+    // Sum balances per currency (main account + jars)
+    const currencyTotals: Record<string, number> = {}
+    for (const b of balances) {
+      if (b.account_id === acc.id) {
+        currencyTotals[b.currency] = (currencyTotals[b.currency] ?? 0) + b.balance
+      }
+      const jar = linkedJars.find(j => j.id === b.account_id)
+      if (jar) {
+        currencyTotals[b.currency] = (currencyTotals[b.currency] ?? 0) + b.balance
+      }
+    }
+    const jarBalances = linkedJars.map(jar => ({
+      jar,
+      balances: balances.filter(b => b.account_id === jar.id),
+    })).filter(j => j.balances.length > 0)
+    return { account: acc, currencyTotals, jarBalances }
+  }).filter(r => Object.keys(r.currencyTotals).length > 0)
 
   function setReportPreset(preset: 'this_month' | 'last_month' | 'this_quarter' | 'this_year') {
     const now = new Date()
@@ -2063,17 +2077,57 @@ function AdministratieInner() {
                   <div className="px-4 py-3 border-b border-slate-100">
                     <h3 className="text-sm font-semibold text-slate-900">Bankrekeningen</h3>
                   </div>
-                  {reportAccountBalances.map((r, i) => (
-                    <div key={r.account.id} className={cn('flex items-center justify-between px-4 py-3', i < reportAccountBalances.length - 1 && 'border-b border-slate-50')}>
-                      <div className="flex items-center gap-2.5">
-                        <span className={cn('w-2 h-2 rounded-full shrink-0', BANK_COLORS[r.account.bank] ?? 'bg-slate-400')} />
-                        <span className="text-sm font-medium text-slate-800">{r.account.name}</span>
+                  {reportAccountBalances.map((r, i) => {
+                    const isExpanded = expandedBankIds.has(r.account.id)
+                    const hasJars = r.jarBalances.length > 0
+                    return (
+                      <div key={r.account.id} className={cn(i < reportAccountBalances.length - 1 && 'border-b border-slate-100')}>
+                        {/* Main account row */}
+                        <div className="flex items-center justify-between px-4 py-3">
+                          <div className="flex items-center gap-2.5">
+                            <span className={cn('w-2 h-2 rounded-full shrink-0', BANK_COLORS[r.account.bank] ?? 'bg-slate-400')} />
+                            <span className="text-sm font-medium text-slate-800">{r.account.name}</span>
+                            {hasJars && (
+                              <button
+                                onClick={() => setExpandedBankIds(prev => {
+                                  const next = new Set(prev)
+                                  if (next.has(r.account.id)) next.delete(r.account.id)
+                                  else next.add(r.account.id)
+                                  return next
+                                })}
+                                className="text-slate-400 hover:text-slate-600 transition-colors"
+                              >
+                                <ChevronRight size={14} className={cn('transition-transform', isExpanded && 'rotate-90')} />
+                              </button>
+                            )}
+                          </div>
+                          <div className="flex gap-3">
+                            {Object.entries(r.currencyTotals).map(([cur, bal]) => (
+                              <span key={cur} className={cn('text-sm font-semibold tabular-nums', bal >= 0 ? 'text-slate-800' : 'text-red-500')}>
+                                {formatCurrency(bal, cur)}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                        {/* Jars (expanded) */}
+                        {isExpanded && r.jarBalances.map(({ jar, balances: jarBals }) => (
+                          <div key={jar.id} className="flex items-center justify-between pl-9 pr-4 py-2 border-t border-slate-50 bg-slate-50/50">
+                            <div className="flex items-center gap-2 text-slate-500">
+                              <PiggyBank size={11} className="text-amber-500 shrink-0" />
+                              <span className="text-xs">{jar.name}</span>
+                            </div>
+                            <div className="flex gap-3">
+                              {jarBals.map(b => (
+                                <span key={b.currency} className={cn('text-xs font-medium tabular-nums', b.balance >= 0 ? 'text-amber-700' : 'text-red-500')}>
+                                  {formatCurrency(b.balance, b.currency)}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                      <span className={cn('text-sm font-semibold tabular-nums', (r.balance ?? 0) >= 0 ? 'text-slate-800' : 'text-red-500')}>
-                        {formatCurrency(r.balance ?? 0, reportCurrency)}
-                      </span>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
 
