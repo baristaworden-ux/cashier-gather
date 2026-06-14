@@ -232,6 +232,11 @@ function AdministratieInner() {
     if (tab === 'transacties' && uncategorizedCount > 0 && !aiPromptDismissed.current) {
       setShowAiPrompt(true)
     }
+    if (tab === 'rapport') {
+      const now = new Date()
+      setReportFrom(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`)
+      setReportTo(now.toISOString().slice(0, 10))
+    }
   }, [tab, uncategorizedCount])
 
   // Close dropdowns on outside click
