@@ -861,7 +861,7 @@ function AdministratieInner() {
   const reportTotalInvestment = reportRows.reduce((s, r) => s + r.investment, 0)
 
   const reportIncomeRows     = reportRows.filter(r => r.income !== 0).sort((a, b) => b.income - a.income)
-  const reportExpenseRows    = reportRows.filter(r => r.expense > 0).sort((a, b) => b.expense - a.expense)
+  const reportExpenseRows    = reportRows.filter(r => r.expense > 0 && r.investment === 0).sort((a, b) => b.expense - a.expense)
   const reportInvestmentRows = reportRows.filter(r => r.investment > 0).sort((a, b) => b.investment - a.investment)
 
   // Bank balances: own balance per currency + jars as sub-items (no summation to avoid double counting)
@@ -2158,7 +2158,7 @@ function AdministratieInner() {
                       ))}
                       <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 bg-slate-50">
                         <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Totaal</span>
-                        <span className="text-sm font-bold text-red-600 tabular-nums">{formatCurrency(reportTotalExpense, reportCurrency)}</span>
+                        <span className="text-sm font-bold text-red-600 tabular-nums">{formatCurrency(reportExpenseRows.reduce((s, r) => s + r.expense, 0), reportCurrency)}</span>
                       </div>
                     </div>
                   )}
