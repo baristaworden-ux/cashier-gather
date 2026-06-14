@@ -127,6 +127,7 @@ function AdministratieInner() {
   const [reportCompare, setReportCompare] = useState(false)
   const [expandedBankIds, setExpandedBankIds] = useState<Set<string>>(new Set())
   const [accountTxPanel, setAccountTxPanel] = useState<string | null>(null)
+  const [categoryTxPanel, setCategoryTxPanel] = useState<string | null>(null)
   const [reportCmpFrom, setReportCmpFrom] = useState('')
   const [reportCmpTo, setReportCmpTo] = useState('')
 
@@ -2150,10 +2151,10 @@ function AdministratieInner() {
                         <h3 className="text-sm font-semibold text-emerald-800">Inkomen</h3>
                       </div>
                       {reportIncomeRows.map((row, i) => (
-                        <div key={row.cat} className={cn('flex items-center justify-between px-4 py-2.5', i < reportIncomeRows.length - 1 && 'border-b border-slate-50')}>
+                        <button key={row.cat} onClick={() => setCategoryTxPanel(row.cat)} className={cn('w-full flex items-center justify-between px-4 py-2.5 hover:bg-slate-50 transition-colors', i < reportIncomeRows.length - 1 && 'border-b border-slate-50')}>
                           <span className="text-sm text-slate-700">{row.cat}</span>
                           <span className="text-sm font-medium text-emerald-600 tabular-nums">{formatCurrency(row.income, reportCurrency)}</span>
-                        </div>
+                        </button>
                       ))}
                       <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 bg-slate-50">
                         <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Totaal</span>
@@ -2169,10 +2170,10 @@ function AdministratieInner() {
                         <h3 className="text-sm font-semibold text-red-800">Uitgaven</h3>
                       </div>
                       {reportExpenseRows.map((row, i) => (
-                        <div key={row.cat} className={cn('flex items-center justify-between px-4 py-2.5', i < reportExpenseRows.length - 1 && 'border-b border-slate-50')}>
+                        <button key={row.cat} onClick={() => setCategoryTxPanel(row.cat)} className={cn('w-full flex items-center justify-between px-4 py-2.5 hover:bg-slate-50 transition-colors', i < reportExpenseRows.length - 1 && 'border-b border-slate-50')}>
                           <span className="text-sm text-slate-700">{row.cat}</span>
                           <span className="text-sm font-medium text-red-500 tabular-nums">{formatCurrency(row.expense, reportCurrency)}</span>
-                        </div>
+                        </button>
                       ))}
                       <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 bg-slate-50">
                         <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Totaal</span>
@@ -2188,10 +2189,10 @@ function AdministratieInner() {
                         <h3 className="text-sm font-semibold text-blue-800">Investeringen</h3>
                       </div>
                       {reportInvestmentRows.map((row, i) => (
-                        <div key={row.cat} className={cn('flex items-center justify-between px-4 py-2.5', i < reportInvestmentRows.length - 1 && 'border-b border-slate-50')}>
+                        <button key={row.cat} onClick={() => setCategoryTxPanel(row.cat)} className={cn('w-full flex items-center justify-between px-4 py-2.5 hover:bg-slate-50 transition-colors', i < reportInvestmentRows.length - 1 && 'border-b border-slate-50')}>
                           <span className="text-sm text-slate-700">{row.cat}</span>
                           <span className="text-sm font-medium text-blue-600 tabular-nums">{formatCurrency(row.investment, reportCurrency)}</span>
-                        </div>
+                        </button>
                       ))}
                       <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 bg-slate-50">
                         <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Totaal</span>
@@ -2234,6 +2235,64 @@ function AdministratieInner() {
           )}
         </>
       )}
+
+      {/* ── CATEGORY TRANSACTIONS PANEL ── */}
+      {categoryTxPanel && (() => {
+        const catTxs = transactions
+          .filter(t =>
+            (t.category || 'Zonder categorie') === categoryTxPanel &&
+            t.status === 'processed' &&
+            t.date >= reportFrom && t.date <= reportTo &&
+            t.currency === reportCurrency
+          )
+          .sort((a, b) => b.date.localeCompare(a.date))
+        const total = catTxs.reduce((s, t) =>
+          s + (t.type === 'income' ? t.amount : t.type === 'terugboeking' ? -t.amount : -t.amount), 0)
+        return (
+          <div className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-sm" onClick={() => setCategoryTxPanel(null)}>
+            <div className="bg-white w-full max-w-md h-full flex flex-col shadow-xl" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+                <div>
+                  <h2 className="text-base font-semibold text-slate-900">{categoryTxPanel}</h2>
+                  <p className="text-xs text-slate-400 mt-0.5">{reportFrom} – {reportTo} · {reportCurrency}</p>
+                </div>
+                <button onClick={() => setCategoryTxPanel(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto divide-y divide-slate-50">
+                {catTxs.length === 0 && (
+                  <p className="text-sm text-slate-400 italic text-center py-10">Geen transacties gevonden.</p>
+                )}
+                {catTxs.map(tx => (
+                  <button key={tx.id} onClick={() => { setCategoryTxPanel(null); openDetail(tx) }}
+                    className="w-full flex items-center justify-between px-5 py-3 hover:bg-slate-50 transition-colors text-left">
+                    <div className="min-w-0 flex-1 pr-3">
+                      <p className="text-xs text-slate-400 tabular-nums">{formatDate(tx.date)} · {accountMap[tx.account_id]?.name ?? '—'}</p>
+                      <p className="text-sm font-medium text-slate-800 truncate">{tx.description}</p>
+                      {tx.vendor && <p className="text-xs text-slate-400 truncate">{tx.vendor}</p>}
+                    </div>
+                    <span className={cn('shrink-0 text-sm font-semibold tabular-nums',
+                      tx.type === 'income' ? 'text-emerald-600' :
+                      tx.type === 'investment' ? 'text-blue-600' :
+                      tx.type === 'terugboeking' ? 'text-orange-500' :
+                      'text-red-500')}>
+                      {tx.type === 'income' ? '+' : tx.type === 'investment' ? '↗' : '-'}
+                      {formatCurrency(tx.amount, tx.currency)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
+                <span className="text-xs text-slate-400">{catTxs.length} transactie{catTxs.length !== 1 ? 's' : ''}</span>
+                <span className={cn('text-sm font-bold tabular-nums', total >= 0 ? 'text-emerald-700' : 'text-red-600')}>
+                  {formatCurrency(Math.abs(total), reportCurrency)}
+                </span>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── ACCOUNT TRANSACTIONS PANEL ── */}
       {accountTxPanel && (() => {
