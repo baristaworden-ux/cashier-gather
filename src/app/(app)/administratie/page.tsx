@@ -864,27 +864,17 @@ function AdministratieInner() {
   const reportExpenseRows    = reportRows.filter(r => r.expense > 0).sort((a, b) => b.expense - a.expense)
   const reportInvestmentRows = reportRows.filter(r => r.investment > 0).sort((a, b) => b.investment - a.investment)
 
-  // Bank balances: per account, all currencies, jars included as subtotals
+  // Bank balances: own balance per currency + jars as sub-items (no summation to avoid double counting)
   const regularAccounts2 = accounts.filter(a => a.account_type !== 'jar')
   const reportAccountBalances = regularAccounts2.map(acc => {
     const linkedJars = accounts.filter(a => a.account_type === 'jar' && a.linked_account_id === acc.id)
-    // Sum balances per currency (main account + jars)
-    const currencyTotals: Record<string, number> = {}
-    for (const b of balances) {
-      if (b.account_id === acc.id) {
-        currencyTotals[b.currency] = (currencyTotals[b.currency] ?? 0) + b.balance
-      }
-      const jar = linkedJars.find(j => j.id === b.account_id)
-      if (jar) {
-        currencyTotals[b.currency] = (currencyTotals[b.currency] ?? 0) + b.balance
-      }
-    }
+    const ownBalances = balances.filter(b => b.account_id === acc.id)
     const jarBalances = linkedJars.map(jar => ({
       jar,
       balances: balances.filter(b => b.account_id === jar.id),
     })).filter(j => j.balances.length > 0)
-    return { account: acc, currencyTotals, jarBalances }
-  }).filter(r => Object.keys(r.currencyTotals).length > 0)
+    return { account: acc, ownBalances, jarBalances }
+  }).filter(r => r.ownBalances.length > 0 || r.jarBalances.length > 0)
 
   function setReportPreset(preset: 'this_month' | 'last_month' | 'this_quarter' | 'this_year') {
     const now = new Date()
@@ -2102,9 +2092,9 @@ function AdministratieInner() {
                             )}
                           </div>
                           <div className="flex gap-3">
-                            {Object.entries(r.currencyTotals).map(([cur, bal]) => (
-                              <span key={cur} className={cn('text-sm font-semibold tabular-nums', bal >= 0 ? 'text-slate-800' : 'text-red-500')}>
-                                {formatCurrency(bal, cur)}
+                            {r.ownBalances.map(b => (
+                              <span key={b.currency} className={cn('text-sm font-semibold tabular-nums', b.balance >= 0 ? 'text-slate-800' : 'text-red-500')}>
+                                {formatCurrency(b.balance, b.currency)}
                               </span>
                             ))}
                           </div>
