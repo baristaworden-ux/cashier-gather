@@ -385,7 +385,7 @@ function AdministratieInner() {
   ])
 
   const TYPE_LABELS: Record<string, string> = {
-    expense: 'uitgaven', income: 'inkomen', investment: 'investering', advance: 'voorschot', transfer: 'overboeking',
+    expense: 'uitgaven', income: 'inkomen', investment: 'investering', advance: 'voorschot', transfer: 'overboeking', terugboeking: 'terugboeking',
   }
   function catTypeLabel(name: string) {
     const cat = categories.find(c => c.name === name)
@@ -825,6 +825,7 @@ function AdministratieInner() {
       const cat = t.category || 'Zonder categorie'
       if (!byCategory[cat]) byCategory[cat] = { income: 0, expense: 0, investment: 0 }
       if (t.type === 'income') byCategory[cat].income += t.amount
+      else if (t.type === 'terugboeking') byCategory[cat].income -= t.amount
       else if (t.type === 'expense') byCategory[cat].expense += t.amount
       else if (t.type === 'investment') byCategory[cat].investment += t.amount
     }
@@ -858,7 +859,7 @@ function AdministratieInner() {
   const reportTotalExpense    = reportRows.reduce((s, r) => s + r.expense, 0)
   const reportTotalInvestment = reportRows.reduce((s, r) => s + r.investment, 0)
 
-  const reportIncomeRows     = reportRows.filter(r => r.income > 0).sort((a, b) => b.income - a.income)
+  const reportIncomeRows     = reportRows.filter(r => r.income !== 0).sort((a, b) => b.income - a.income)
   const reportExpenseRows    = reportRows.filter(r => r.expense > 0).sort((a, b) => b.expense - a.expense)
   const reportInvestmentRows = reportRows.filter(r => r.investment > 0).sort((a, b) => b.investment - a.investment)
 
@@ -1334,8 +1335,9 @@ function AdministratieInner() {
                                           displayType === 'transfer' ? 'bg-slate-100 text-slate-500' :
                                           displayType === 'investment' ? 'bg-blue-50 text-blue-600' :
                                           displayType === 'advance' ? 'bg-amber-50 text-amber-600' :
-                                          displayType === 'aflossing' ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-500')}>
-                                          {displayType === 'income' ? 'Inkomen' : displayType === 'expense' ? 'Uitgave' : displayType === 'transfer' ? 'Overboeking' : displayType === 'investment' ? 'Investering' : displayType === 'advance' ? 'Voorschot' : displayType === 'aflossing' ? 'Aflossing' : displayType}
+                                          displayType === 'aflossing' ? 'bg-rose-50 text-rose-600' :
+                                          displayType === 'terugboeking' ? 'bg-orange-50 text-orange-600' : 'bg-slate-100 text-slate-500')}>
+                                          {displayType === 'income' ? 'Inkomen' : displayType === 'expense' ? 'Uitgave' : displayType === 'transfer' ? 'Overboeking' : displayType === 'investment' ? 'Investering' : displayType === 'advance' ? 'Voorschot' : displayType === 'aflossing' ? 'Aflossing' : displayType === 'terugboeking' ? 'Terugboeking' : displayType}
                                         </span>
                                       </div>
                                     )
@@ -1392,9 +1394,9 @@ function AdministratieInner() {
 
                                 {/* Bedrag + koppeling inline */}
                                 <td className={cn('px-2 py-2 text-right w-28',
-                                  tx.type === 'income' ? 'text-emerald-600' : tx.type === 'expense' ? 'text-red-500' : tx.type === 'investment' ? 'text-blue-600' : tx.type === 'advance' ? 'text-amber-600' : tx.type === 'aflossing' ? 'text-rose-600' : 'text-slate-500')}>
+                                  tx.type === 'income' ? 'text-emerald-600' : tx.type === 'expense' ? 'text-red-500' : tx.type === 'investment' ? 'text-blue-600' : tx.type === 'advance' ? 'text-amber-600' : tx.type === 'aflossing' ? 'text-rose-600' : tx.type === 'terugboeking' ? 'text-orange-500' : 'text-slate-500')}>
                                   <div className="font-semibold whitespace-nowrap text-sm">
-                                    {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : tx.type === 'investment' ? '↗' : tx.type === 'advance' ? '⟳' : tx.type === 'aflossing' ? '↘' : ''}
+                                    {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : tx.type === 'investment' ? '↗' : tx.type === 'advance' ? '⟳' : tx.type === 'aflossing' ? '↘' : tx.type === 'terugboeking' ? '-' : ''}
                                     {formatCurrency(tx.amount, tx.currency)}
                                   </div>
                                   {/* Koppeling onder bedrag */}
@@ -2180,8 +2182,8 @@ function AdministratieInner() {
               <div>
                 <p className="text-xs text-slate-400 mb-1">{formatDate(detailEdits.date ?? detailTx.date)} · {accountMap[detailTx.account_id]?.name ?? '—'} · {detailTx.currency}</p>
                 <p className={cn('text-2xl font-bold',
-                  detailTx.type === 'income' ? 'text-emerald-600' : detailTx.type === 'investment' ? 'text-blue-600' : detailTx.type === 'advance' ? 'text-amber-600' : detailTx.type === 'expense' ? 'text-red-500' : 'text-slate-500')}>
-                  {detailTx.type === 'income' ? '+' : detailTx.type === 'investment' ? '↗' : detailTx.type === 'advance' ? '⟳' : detailTx.type === 'expense' ? '-' : ''}{formatCurrency(detailTx.amount, detailTx.currency)}
+                  detailTx.type === 'income' ? 'text-emerald-600' : detailTx.type === 'investment' ? 'text-blue-600' : detailTx.type === 'advance' ? 'text-amber-600' : detailTx.type === 'expense' ? 'text-red-500' : detailTx.type === 'terugboeking' ? 'text-orange-500' : 'text-slate-500')}>
+                  {detailTx.type === 'income' ? '+' : detailTx.type === 'investment' ? '↗' : detailTx.type === 'advance' ? '⟳' : detailTx.type === 'expense' ? '-' : detailTx.type === 'terugboeking' ? '-' : ''}{formatCurrency(detailTx.amount, detailTx.currency)}
                 </p>
               </div>
               <button onClick={() => setDetailTx(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
@@ -2230,6 +2232,7 @@ function AdministratieInner() {
                   >
                     <option value="expense">Uitgave</option>
                     <option value="income">Inkomsten</option>
+                    <option value="terugboeking">Terugboeking</option>
                     <option value="transfer">Overboeking</option>
                     <option value="investment">Investering</option>
                     <option value="advance">Voorschot</option>
