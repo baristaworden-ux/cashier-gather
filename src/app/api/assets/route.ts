@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { name, symbol, category, units, current_price, currency, purchase_price, purchase_date, notes } = body
+  const { name, symbol, category, units, current_price, currency, purchase_price, purchase_date, notes, unit, price_ticker } = body
   if (!name || !category) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
 
   const { data, error } = await supabase
@@ -39,6 +39,8 @@ export async function POST(req: NextRequest) {
       purchase_price: parseFloat(purchase_price) || null,
       purchase_date: purchase_date || null,
       notes: notes?.trim() || null,
+      unit: unit?.trim() || null,
+      price_ticker: price_ticker?.trim() || null,
     })
     .select()
     .single()
@@ -65,6 +67,8 @@ export async function PATCH(req: NextRequest) {
   if (body.purchase_price !== undefined) updateData.purchase_price = parseFloat(body.purchase_price) || null
   if (body.purchase_date !== undefined) updateData.purchase_date = body.purchase_date || null
   if (body.notes !== undefined) updateData.notes = body.notes?.trim() || null
+  if (body.unit !== undefined) updateData.unit = body.unit?.trim() || null
+  if (body.price_ticker !== undefined) updateData.price_ticker = body.price_ticker?.trim() || null
 
   const { data, error } = await supabase
     .from('admin_assets')
