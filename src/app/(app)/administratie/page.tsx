@@ -841,10 +841,11 @@ function AdministratieInner() {
     const catTypeMap = new Map(categories.map(c => [c.name, c.type]))
     const byCategory: Record<string, { income: number; expense: number; investment: number }> = {}
     for (const t of txs) {
+      // Skip internal transfers — they are not income or expenses
+      if (t.type === 'transfer') continue
       const cat = t.category || 'Zonder categorie'
       if (!byCategory[cat]) byCategory[cat] = { income: 0, expense: 0, investment: 0 }
       const catType = catTypeMap.get(cat)
-      // Category type overrides transaction type for investment/income routing
       const effectiveType = catType === 'investment' ? 'investment'
         : catType === 'income' ? 'income'
         : t.type
