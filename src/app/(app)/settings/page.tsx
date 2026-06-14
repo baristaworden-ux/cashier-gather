@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { LogOut, Plus, Trash2, Search, PiggyBank, ChevronRight, CornerDownRight, X, Landmark } from 'lucide-react'
+import { LogOut, Plus, Trash2, Search, PiggyBank, ChevronRight, CornerDownRight, X, Landmark, Pencil, Check } from 'lucide-react'
 import { AdminCategory, Vendor, Account, AccountBalance, Loan } from '@/types'
 import { cn, formatCurrency, CURRENCIES } from '@/lib/utils'
 
@@ -57,7 +57,9 @@ export default function SettingsPage() {
   const [savingSub, setSavingSub] = useState(false)
   const [subError, setSubError] = useState<string | null>(null)
   const [movingCatId, setMovingCatId] = useState<string | null>(null)
-  const [editingTypeId, setEditingTypeId] = useState<string | null>(null)
+  const [editingCatId, setEditingCatId] = useState<string | null>(null)
+  const [editingCatName, setEditingCatName] = useState('')
+  const [editingCatType, setEditingCatType] = useState<AdminCategory['type']>('expense')
 
   // Loans
   const [loans, setLoans] = useState<Loan[]>([])
@@ -186,15 +188,23 @@ export default function SettingsPage() {
     setCategories(c => c.filter(x => x.id !== id))
   }
 
-  async function updateCategoryType(id: string, type: string) {
+  function openCatEdit(cat: AdminCategory) {
+    setEditingCatId(cat.id)
+    setEditingCatName(cat.name)
+    setEditingCatType(cat.type)
+    setMovingCatId(null)
+  }
+
+  async function saveCategory(id: string) {
+    if (!editingCatName.trim()) return
     const res = await fetch('/api/categories', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, type }),
+      body: JSON.stringify({ id, name: editingCatName.trim(), type: editingCatType }),
     })
     if (res.ok) {
-      setCategories(c => c.map(x => x.id === id ? { ...x, type: type as AdminCategory['type'] } : x))
+      setCategories(c => c.map(x => x.id === id ? { ...x, name: editingCatName.trim(), type: editingCatType } : x))
     }
-    setEditingTypeId(null)
+    setEditingCatId(null)
   }
 
   async function moveToSubCategory(id: string, parentId: string) {
@@ -448,45 +458,62 @@ export default function SettingsPage() {
             return parents.map((cat, i) => (
               <div key={cat.id} className={cn(i < parents.length - 1 && 'border-b border-slate-100')}>
                 {/* Parent row */}
-                <div className="flex items-center justify-between px-4 py-3">
-                  <span className="text-sm font-semibold text-slate-900">{cat.name}</span>
-                  <div className="flex items-center gap-2">
-                    {editingTypeId === cat.id ? (
-                      <select autoFocus defaultValue={cat.type}
-                        onBlur={() => setEditingTypeId(null)}
-                        onChange={e => updateCategoryType(cat.id, e.target.value)}
-                        className="text-xs border border-indigo-300 rounded-full px-2 py-0.5 outline-none bg-white">
-                        <option value="expense">Uitgaven</option>
-                        <option value="income">Inkomsten</option>
-                        <option value="investment">Investering</option>
-                        <option value="advance">Voorschot</option>
-                      </select>
-                    ) : (
-                      <button onClick={() => setEditingTypeId(cat.id)}
-                        title="Klik om type te wijzigen"
-                        className={cn('text-xs font-medium px-2 py-0.5 rounded-full cursor-pointer hover:opacity-70',
-                          cat.type === 'income' ? 'bg-emerald-100 text-emerald-700' :
-                          cat.type === 'advance' ? 'bg-amber-100 text-amber-700' :
-                          cat.type === 'investment' ? 'bg-blue-100 text-blue-700' :
-                          'bg-red-100 text-red-600')}>
-                        {cat.type === 'income' ? 'Inkomsten' : cat.type === 'advance' ? 'Voorschot' : cat.type === 'investment' ? 'Investering' : 'Uitgaven'}
-                      </button>
-                    )}
-                    <button
-                      onClick={() => setMovingCatId(movingCatId === cat.id ? null : cat.id)}
-                      className="text-slate-300 hover:text-violet-500 transition-colors p-1" title="Verplaats naar subcategorie">
-                      <CornerDownRight size={13} />
+                {editingCatId === cat.id ? (
+                  <div className="flex items-center gap-2 px-4 py-2.5 bg-indigo-50/40 border-b border-indigo-100">
+                    <input
+                      autoFocus
+                      value={editingCatName}
+                      onChange={e => setEditingCatName(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') saveCategory(cat.id); if (e.key === 'Escape') setEditingCatId(null) }}
+                      className="flex-1 px-3 py-1.5 text-sm font-semibold border border-indigo-300 rounded-lg outline-none focus:border-indigo-500 bg-white"
+                    />
+                    <select value={editingCatType} onChange={e => setEditingCatType(e.target.value as AdminCategory['type'])}
+                      className="px-2 py-1.5 text-xs border border-indigo-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
+                      <option value="expense">Uitgaven</option>
+                      <option value="income">Inkomsten</option>
+                      <option value="investment">Investering</option>
+                      <option value="advance">Voorschot</option>
+                    </select>
+                    <button onClick={() => saveCategory(cat.id)} disabled={!editingCatName.trim()}
+                      className="p-1.5 text-indigo-600 hover:text-indigo-800 disabled:opacity-30 transition-colors">
+                      <Check size={15} />
                     </button>
-                    <button
-                      onClick={() => { setAddingSubFor(addingSubFor === cat.id ? null : cat.id); setNewSubName('') }}
-                      className="text-slate-300 hover:text-indigo-500 transition-colors p-1" title="Subcategorie toevoegen">
-                      <Plus size={14} />
-                    </button>
-                    <button onClick={() => deleteCategory(cat.id)} className="text-slate-300 hover:text-red-400 transition-colors p-1">
-                      <Trash2 size={14} />
+                    <button onClick={() => setEditingCatId(null)} className="p-1.5 text-slate-400 hover:text-slate-600 transition-colors">
+                      <X size={15} />
                     </button>
                   </div>
-                </div>
+                ) : (
+                  <div className="flex items-center justify-between px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-slate-900">{cat.name}</span>
+                      <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full',
+                        cat.type === 'income' ? 'bg-emerald-100 text-emerald-700' :
+                        cat.type === 'advance' ? 'bg-amber-100 text-amber-700' :
+                        cat.type === 'investment' ? 'bg-blue-100 text-blue-700' :
+                        'bg-red-100 text-red-600')}>
+                        {cat.type === 'income' ? 'Inkomsten' : cat.type === 'advance' ? 'Voorschot' : cat.type === 'investment' ? 'Investering' : 'Uitgaven'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => openCatEdit(cat)} className="text-slate-300 hover:text-indigo-500 transition-colors p-1" title="Bewerken">
+                        <Pencil size={13} />
+                      </button>
+                      <button
+                        onClick={() => setMovingCatId(movingCatId === cat.id ? null : cat.id)}
+                        className="text-slate-300 hover:text-violet-500 transition-colors p-1" title="Verplaats naar subcategorie">
+                        <CornerDownRight size={13} />
+                      </button>
+                      <button
+                        onClick={() => { setAddingSubFor(addingSubFor === cat.id ? null : cat.id); setNewSubName('') }}
+                        className="text-slate-300 hover:text-indigo-500 transition-colors p-1" title="Subcategorie toevoegen">
+                        <Plus size={14} />
+                      </button>
+                      <button onClick={() => deleteCategory(cat.id)} className="text-slate-300 hover:text-red-400 transition-colors p-1">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Move to subcategory picker */}
                 {movingCatId === cat.id && (
@@ -511,21 +538,45 @@ export default function SettingsPage() {
 
                 {/* Subcategories */}
                 {subs(cat.id).map(sub => (
-                  <div key={sub.id} className="flex items-center justify-between pl-9 pr-4 py-2 border-t border-slate-50 bg-slate-50/50">
-                    <div className="flex items-center gap-1.5 text-slate-600">
-                      <ChevronRight size={12} className="text-slate-300 shrink-0" />
-                      <span className="text-sm">{sub.name}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => promoteToParent(sub.id)}
-                        className="text-slate-300 hover:text-violet-500 transition-colors p-1" title="Terugzetten als hoofdcategorie">
-                        <CornerDownRight size={12} className="rotate-180" />
-                      </button>
-                      <button onClick={() => deleteCategory(sub.id)} className="text-slate-300 hover:text-red-400 transition-colors p-1">
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
+                  <div key={sub.id} className="border-t border-slate-50">
+                    {editingCatId === sub.id ? (
+                      <div className="flex items-center gap-2 pl-9 pr-4 py-2 bg-indigo-50/40">
+                        <input
+                          autoFocus
+                          value={editingCatName}
+                          onChange={e => setEditingCatName(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') saveCategory(sub.id); if (e.key === 'Escape') setEditingCatId(null) }}
+                          className="flex-1 px-3 py-1 text-sm border border-indigo-300 rounded-lg outline-none focus:border-indigo-500 bg-white"
+                        />
+                        <button onClick={() => saveCategory(sub.id)} disabled={!editingCatName.trim()}
+                          className="p-1.5 text-indigo-600 hover:text-indigo-800 disabled:opacity-30 transition-colors">
+                          <Check size={14} />
+                        </button>
+                        <button onClick={() => setEditingCatId(null)} className="p-1.5 text-slate-400 hover:text-slate-600 transition-colors">
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between pl-9 pr-4 py-2 bg-slate-50/50">
+                        <div className="flex items-center gap-1.5 text-slate-600">
+                          <ChevronRight size={12} className="text-slate-300 shrink-0" />
+                          <span className="text-sm">{sub.name}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => openCatEdit(sub)} className="text-slate-300 hover:text-indigo-500 transition-colors p-1" title="Bewerken">
+                            <Pencil size={12} />
+                          </button>
+                          <button
+                            onClick={() => promoteToParent(sub.id)}
+                            className="text-slate-300 hover:text-violet-500 transition-colors p-1" title="Terugzetten als hoofdcategorie">
+                            <CornerDownRight size={12} className="rotate-180" />
+                          </button>
+                          <button onClick={() => deleteCategory(sub.id)} className="text-slate-300 hover:text-red-400 transition-colors p-1">
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
 

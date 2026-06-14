@@ -42,12 +42,13 @@ export async function PATCH(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { id, parent_id, type } = await req.json()
+  const { id, parent_id, type, name } = await req.json()
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
 
   const updateData: Record<string, unknown> = {}
   if (parent_id !== undefined) updateData.parent_id = parent_id || null
   if (type !== undefined) updateData.type = type
+  if (name !== undefined) updateData.name = name
 
   const { data, error } = await supabase
     .from('admin_categories')
