@@ -238,6 +238,7 @@ function AdministratieInner() {
       const now = new Date()
       setReportFrom(`${now.getFullYear()}-01-01`)
       setReportTo(now.toISOString().slice(0, 10))
+      loadData()
     }
   }, [tab, uncategorizedCount])
 
