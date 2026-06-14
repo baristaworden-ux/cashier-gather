@@ -365,11 +365,19 @@ function AdministratieInner() {
       }
     }
 
-    await fetch('/api/transactions', {
+    const patchRes = await fetch('/api/transactions', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: detailTx.id, ...detailEdits }),
     })
-    setTransactions(txs => txs.map(t => t.id === detailTx.id ? { ...t, ...detailEdits } : t))
+    const patchData = await patchRes.json()
+    if (!patchRes.ok) {
+      setSavingDetail(false)
+      alert(`Opslaan mislukt: ${patchData.error ?? patchRes.status}`)
+      return
+    }
+    // Use the server-returned transaction to ensure local state matches DB
+    const saved: Transaction = patchData.transaction
+    setTransactions(txs => txs.map(t => t.id === saved.id ? saved : t))
     setSavingDetail(false)
     setDetailTx(null)
   }
@@ -821,14 +829,20 @@ function AdministratieInner() {
     : []
 
   function buildReportRows(txs: Transaction[]) {
+    const catTypeMap = new Map(categories.map(c => [c.name, c.type]))
     const byCategory: Record<string, { income: number; expense: number; investment: number }> = {}
     for (const t of txs) {
       const cat = t.category || 'Zonder categorie'
       if (!byCategory[cat]) byCategory[cat] = { income: 0, expense: 0, investment: 0 }
-      if (t.type === 'income') byCategory[cat].income += t.amount
-      else if (t.type === 'terugboeking') byCategory[cat].income -= t.amount
-      else if (t.type === 'expense') byCategory[cat].expense += t.amount
-      else if (t.type === 'investment') byCategory[cat].investment += t.amount
+      const catType = catTypeMap.get(cat)
+      // Category type overrides transaction type for investment/income routing
+      const effectiveType = catType === 'investment' ? 'investment'
+        : catType === 'income' ? 'income'
+        : t.type
+      if (t.type === 'terugboeking') byCategory[cat].income -= t.amount
+      else if (effectiveType === 'income') byCategory[cat].income += t.amount
+      else if (effectiveType === 'investment') byCategory[cat].investment += t.amount
+      else byCategory[cat].expense += t.amount
     }
     return byCategory
   }
