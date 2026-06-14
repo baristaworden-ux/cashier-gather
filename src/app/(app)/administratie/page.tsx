@@ -128,6 +128,7 @@ function AdministratieInner() {
   const [reportSort] = useState<ReportSort>('expense_desc')
   const [reportCompare, setReportCompare] = useState(false)
   const [expandedBankIds, setExpandedBankIds] = useState<Set<string>>(new Set())
+  const [accountTxPanel, setAccountTxPanel] = useState<string | null>(null)
   const [reportCmpFrom, setReportCmpFrom] = useState('')
   const [reportCmpTo, setReportCmpTo] = useState('')
 
@@ -2090,7 +2091,7 @@ function AdministratieInner() {
                         <div className="flex items-center justify-between px-4 py-3">
                           <div className="flex items-center gap-2.5">
                             <span className={cn('w-2 h-2 rounded-full shrink-0', BANK_COLORS[r.account.bank] ?? 'bg-slate-400')} />
-                            <span className="text-sm font-medium text-slate-800">{r.account.name}</span>
+                            <button onClick={() => setAccountTxPanel(r.account.id)} className="text-sm font-medium text-slate-800 hover:text-indigo-600 hover:underline transition-colors text-left">{r.account.name}</button>
                             {hasJars && (
                               <button
                                 onClick={() => setExpandedBankIds(prev => {
@@ -2118,7 +2119,7 @@ function AdministratieInner() {
                           <div key={jar.id} className="flex items-center justify-between pl-9 pr-4 py-2 border-t border-slate-50 bg-slate-50/50">
                             <div className="flex items-center gap-2 text-slate-500">
                               <PiggyBank size={11} className="text-amber-500 shrink-0" />
-                              <span className="text-xs">{jar.name}</span>
+                              <button onClick={() => setAccountTxPanel(jar.id)} className="text-xs hover:text-indigo-600 hover:underline transition-colors">{jar.name}</button>
                             </div>
                             <div className="flex gap-3">
                               {jarBals.map(b => (
@@ -2230,6 +2231,74 @@ function AdministratieInner() {
           )}
         </>
       )}
+
+      {/* ── ACCOUNT TRANSACTIONS PANEL ── */}
+      {accountTxPanel && (() => {
+        const acc = accounts.find(a => a.id === accountTxPanel)
+        const accBals = balances.filter(b => b.account_id === accountTxPanel)
+        const accTxs = transactions
+          .filter(t => t.account_id === accountTxPanel)
+          .sort((a, b) => b.date.localeCompare(a.date) || b.created_at.localeCompare(a.created_at))
+        return (
+          <div className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-sm" onClick={() => setAccountTxPanel(null)}>
+            <div className="bg-white w-full max-w-md h-full flex flex-col shadow-xl" onClick={e => e.stopPropagation()}>
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className={cn('w-2 h-2 rounded-full shrink-0', BANK_COLORS[acc?.bank ?? ''] ?? 'bg-slate-400')} />
+                    <h2 className="text-base font-semibold text-slate-900">{acc?.name ?? '—'}</h2>
+                  </div>
+                  <div className="flex gap-3 mt-0.5">
+                    {accBals.map(b => (
+                      <span key={b.currency} className={cn('text-sm font-medium tabular-nums', b.balance >= 0 ? 'text-slate-600' : 'text-red-500')}>
+                        {formatCurrency(b.balance, b.currency)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <button onClick={() => setAccountTxPanel(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
+                  <X size={16} />
+                </button>
+              </div>
+              {/* Transaction list */}
+              <div className="flex-1 overflow-y-auto divide-y divide-slate-50">
+                {accTxs.length === 0 && (
+                  <p className="text-sm text-slate-400 italic text-center py-10">Geen transacties gevonden.</p>
+                )}
+                {accTxs.map(tx => (
+                  <button key={tx.id} onClick={() => { setAccountTxPanel(null); openDetail(tx) }}
+                    className="w-full flex items-center justify-between px-5 py-3 hover:bg-slate-50 transition-colors text-left">
+                    <div className="min-w-0 flex-1 pr-3">
+                      <p className="text-xs text-slate-400 tabular-nums">{formatDate(tx.date)}</p>
+                      <p className="text-sm font-medium text-slate-800 truncate">{tx.description}</p>
+                      {tx.category && <p className="text-xs text-slate-400 truncate">{tx.category}</p>}
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className={cn('text-sm font-semibold tabular-nums',
+                        tx.type === 'income' ? 'text-emerald-600' :
+                        tx.type === 'investment' ? 'text-blue-600' :
+                        tx.type === 'terugboeking' ? 'text-orange-500' :
+                        tx.type === 'advance' ? 'text-amber-600' :
+                        'text-red-500')}>
+                        {tx.type === 'income' ? '+' : tx.type === 'investment' ? '↗' : tx.type === 'advance' ? '⟳' : '-'}
+                        {formatCurrency(tx.amount, tx.currency)}
+                      </p>
+                      <span className={cn('text-xs px-1.5 py-0.5 rounded-full',
+                        tx.status === 'processed' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600')}>
+                        {tx.status === 'processed' ? 'verwerkt' : 'concept'}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 text-xs text-slate-400">
+                {accTxs.length} transactie{accTxs.length !== 1 ? 's' : ''}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── TRANSACTION DETAIL MODAL ── */}
       {detailTx && (
