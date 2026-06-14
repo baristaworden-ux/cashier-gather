@@ -548,6 +548,13 @@ export default function SettingsPage() {
                           onKeyDown={e => { if (e.key === 'Enter') saveCategory(sub.id); if (e.key === 'Escape') setEditingCatId(null) }}
                           className="flex-1 px-3 py-1 text-sm border border-indigo-300 rounded-lg outline-none focus:border-indigo-500 bg-white"
                         />
+                        <select value={editingCatType} onChange={e => setEditingCatType(e.target.value as AdminCategory['type'])}
+                          className="px-2 py-1 text-xs border border-indigo-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
+                          <option value="expense">Uitgaven</option>
+                          <option value="income">Inkomsten</option>
+                          <option value="investment">Investering</option>
+                          <option value="advance">Voorschot</option>
+                        </select>
                         <button onClick={() => saveCategory(sub.id)} disabled={!editingCatName.trim()}
                           className="p-1.5 text-indigo-600 hover:text-indigo-800 disabled:opacity-30 transition-colors">
                           <Check size={14} />
@@ -558,9 +565,16 @@ export default function SettingsPage() {
                       </div>
                     ) : (
                       <div className="flex items-center justify-between pl-9 pr-4 py-2 bg-slate-50/50">
-                        <div className="flex items-center gap-1.5 text-slate-600">
+                        <div className="flex items-center gap-2 text-slate-600">
                           <ChevronRight size={12} className="text-slate-300 shrink-0" />
                           <span className="text-sm">{sub.name}</span>
+                          <span className={cn('text-xs font-medium px-1.5 py-0.5 rounded-full',
+                            sub.type === 'income' ? 'bg-emerald-100 text-emerald-700' :
+                            sub.type === 'advance' ? 'bg-amber-100 text-amber-700' :
+                            sub.type === 'investment' ? 'bg-blue-100 text-blue-700' :
+                            'bg-red-100 text-red-600')}>
+                            {sub.type === 'income' ? 'Inkomsten' : sub.type === 'advance' ? 'Voorschot' : sub.type === 'investment' ? 'Investering' : 'Uitgaven'}
+                          </span>
                         </div>
                         <div className="flex items-center gap-1">
                           <button onClick={() => openCatEdit(sub)} className="text-slate-300 hover:text-indigo-500 transition-colors p-1" title="Bewerken">
