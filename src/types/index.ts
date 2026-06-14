@@ -26,6 +26,14 @@ export interface AccountBalance {
   updated_at: string
 }
 
+export interface OpeningBalance {
+  id: string
+  account_id: string
+  currency: string
+  amount: number
+  date: string
+}
+
 export interface Transaction {
   id: string
   user_id: string

@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { LogOut, Plus, Trash2, Search, PiggyBank, ChevronRight, CornerDownRight, X, Landmark, Pencil, Check } from 'lucide-react'
-import { AdminCategory, Vendor, Account, AccountBalance, Loan } from '@/types'
+import { LogOut, Plus, Trash2, Search, PiggyBank, ChevronRight, CornerDownRight, X, Landmark, Pencil, Check, CalendarDays } from 'lucide-react'
+import { AdminCategory, Vendor, Account, AccountBalance, OpeningBalance, Loan } from '@/types'
 import { cn, formatCurrency, CURRENCIES } from '@/lib/utils'
 
 const BANK_LABELS: Record<string, string> = {
@@ -39,11 +39,16 @@ export default function SettingsPage() {
   // Accounts & jars
   const [accounts, setAccounts] = useState<Account[]>([])
   const [balances, setBalances] = useState<AccountBalance[]>([])
+  const [openingBalances, setOpeningBalances] = useState<OpeningBalance[]>([])
   const [newAccount, setNewAccount] = useState({ name: '', bank: 'rabobank', account_number: '' })
   const [newJar, setNewJar] = useState({ name: '', currency: 'EUR', linked_account_id: '' })
   const [savingAccount, setSavingAccount] = useState(false)
   const [savingJar, setSavingJar] = useState(false)
   const [jarError, setJarError] = useState<string | null>(null)
+  const [editingObKey, setEditingObKey] = useState<string | null>(null) // "accountId:currency"
+  const [obAmount, setObAmount] = useState('')
+  const [obDate, setObDate] = useState('')
+  const [savingOb, setSavingOb] = useState(false)
 
   // Categories
   const [categories, setCategories] = useState<AdminCategory[]>([])
@@ -81,7 +86,7 @@ export default function SettingsPage() {
       fetch('/api/vendors'),
       fetch('/api/loans'),
     ])
-    if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []) }
+    if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []); setOpeningBalances(d.opening_balances || []) }
     if (catRes.ok) { const { categories } = await catRes.json(); setCategories(categories || []) }
     if (vendorRes.ok) { const { vendors } = await vendorRes.json(); setVendors(vendors || []) }
     if (loanRes.ok) { const { loans } = await loanRes.json(); setLoans(loans || []) }
@@ -137,6 +142,35 @@ export default function SettingsPage() {
     if (!confirm(`${type === 'jar' ? 'Jar' : 'Rekening'} verwijderen? Alle transacties worden ook verwijderd.`)) return
     await fetch(`/api/accounts?id=${id}`, { method: 'DELETE' })
     await loadData()
+  }
+
+  // ── Opening balances ──
+  function openObEdit(accountId: string, currency: string) {
+    const key = `${accountId}:${currency}`
+    if (editingObKey === key) { setEditingObKey(null); return }
+    const ob = openingBalances.find(o => o.account_id === accountId && o.currency === currency)
+    setEditingObKey(key)
+    setObAmount(ob ? String(ob.amount) : '')
+    setObDate(ob ? ob.date : new Date().toISOString().slice(0, 10))
+  }
+
+  async function saveOpeningBalance(accountId: string, currency: string) {
+    if (!obDate) return
+    setSavingOb(true)
+    const res = await fetch('/api/opening-balances', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account_id: accountId, currency, amount: parseFloat(obAmount) || 0, date: obDate }),
+    })
+    if (res.ok) {
+      const { opening_balance } = await res.json()
+      setOpeningBalances(obs => {
+        const idx = obs.findIndex(o => o.account_id === accountId && o.currency === currency)
+        if (idx >= 0) return obs.map((o, i) => i === idx ? opening_balance : o)
+        return [...obs, opening_balance]
+      })
+    }
+    setSavingOb(false)
+    setEditingObKey(null)
   }
 
   // ── Categories ──
@@ -306,44 +340,89 @@ export default function SettingsPage() {
   function AccountRow({ account }: { account: Account }) {
     const acctBalances = balances.filter(b => b.account_id === account.id)
     const isJar = account.account_type === 'jar'
+    const editCurrency = editingObKey?.startsWith(account.id + ':') ? editingObKey.split(':')[1] : null
     return (
-      <div className="flex items-center justify-between py-3 border-b border-slate-50 last:border-0">
-        <div className="flex items-center gap-3">
-          <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center shrink-0',
-            isJar ? 'bg-amber-100' : (BANK_COLORS[account.bank] || 'bg-slate-400'))}>
-            {isJar
-              ? <PiggyBank size={15} className="text-amber-600" />
-              : <span className="text-white text-xs font-bold">{account.bank[0].toUpperCase()}</span>}
+      <div className="border-b border-slate-50 last:border-0">
+        <div className="flex items-center justify-between py-3">
+          <div className="flex items-center gap-3">
+            <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center shrink-0',
+              isJar ? 'bg-amber-100' : (BANK_COLORS[account.bank] || 'bg-slate-400'))}>
+              {isJar
+                ? <PiggyBank size={15} className="text-amber-600" />
+                : <span className="text-white text-xs font-bold">{account.bank[0].toUpperCase()}</span>}
+            </div>
+            <div>
+              <p className="text-sm font-medium text-slate-900">{account.name}</p>
+              <p className="text-xs text-slate-400">
+                {isJar ? (
+                  <>
+                    {account.currency || '—'}
+                    {account.linked_account_id && (
+                      <> · {accounts.find(a => a.id === account.linked_account_id)?.name ?? '?'}</>
+                    )}
+                  </>
+                ) : (
+                  `${BANK_LABELS[account.bank]}${account.account_number ? ` · ${account.account_number}` : ''}`
+                )}
+              </p>
+            </div>
           </div>
-          <div>
-            <p className="text-sm font-medium text-slate-900">{account.name}</p>
-            <p className="text-xs text-slate-400">
-              {isJar ? (
-                <>
-                  {account.currency || '—'}
-                  {account.linked_account_id && (
-                    <> · {accounts.find(a => a.id === account.linked_account_id)?.name ?? '?'}</>
-                  )}
-                </>
-              ) : (
-                `${BANK_LABELS[account.bank]}${account.account_number ? ` · ${account.account_number}` : ''}`
+          <div className="flex items-center gap-2">
+            <div className="flex gap-1 flex-wrap justify-end">
+              {acctBalances.map(b => {
+                const ob = openingBalances.find(o => o.account_id === account.id && o.currency === b.currency)
+                return (
+                  <div key={b.id} className="text-right">
+                    <span className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full font-medium">
+                      {formatCurrency(b.balance + (ob?.amount ?? 0), b.currency)}
+                    </span>
+                    {ob && <p className="text-xs text-slate-400 mt-0.5">start {formatCurrency(ob.amount, b.currency)}</p>}
+                  </div>
+                )
+              })}
+            </div>
+            <div className="flex items-center gap-0.5">
+              {acctBalances.map(b => (
+                <button key={b.id} onClick={() => openObEdit(account.id, b.currency)}
+                  className={cn('p-1 transition-colors', editingObKey === `${account.id}:${b.currency}` ? 'text-indigo-500' : 'text-slate-300 hover:text-indigo-400')}
+                  title="Startbedrag instellen">
+                  <CalendarDays size={13} />
+                </button>
+              ))}
+              {acctBalances.length === 0 && (
+                <button onClick={() => openObEdit(account.id, isJar ? (account.currency || 'EUR') : 'EUR')}
+                  className="p-1 text-slate-300 hover:text-indigo-400 transition-colors" title="Startbedrag instellen">
+                  <CalendarDays size={13} />
+                </button>
               )}
-            </p>
+              <button onClick={() => deleteAccount(account.id, account.account_type)}
+                className="text-slate-300 hover:text-red-400 transition-colors p-1 shrink-0">
+                <Trash2 size={14} />
+              </button>
+            </div>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex gap-1 flex-wrap justify-end">
-            {acctBalances.map(b => (
-              <span key={b.id} className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full font-medium">
-                {formatCurrency(b.balance, b.currency)}
-              </span>
-            ))}
+        {editCurrency && (
+          <div className="flex items-center gap-2 pb-3 pt-1">
+            <span className="text-xs text-slate-500 font-medium whitespace-nowrap">{editCurrency} startbedrag:</span>
+            <input
+              type="number" step="0.01" placeholder="0.00"
+              value={obAmount} onChange={e => setObAmount(e.target.value)}
+              className="w-28 px-2 py-1 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400"
+            />
+            <input
+              type="date" value={obDate} onChange={e => setObDate(e.target.value)}
+              className="px-2 py-1 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400"
+            />
+            <button onClick={() => saveOpeningBalance(account.id, editCurrency)} disabled={savingOb || !obDate}
+              className="p-1.5 text-indigo-600 hover:text-indigo-800 disabled:opacity-30 transition-colors">
+              <Check size={14} />
+            </button>
+            <button onClick={() => setEditingObKey(null)} className="p-1.5 text-slate-400 hover:text-slate-600 transition-colors">
+              <X size={14} />
+            </button>
           </div>
-          <button onClick={() => deleteAccount(account.id, account.account_type)}
-            className="text-slate-300 hover:text-red-400 transition-colors p-1 shrink-0">
-            <Trash2 size={14} />
-          </button>
-        </div>
+        )}
       </div>
     )
   }
@@ -364,33 +443,70 @@ export default function SettingsPage() {
               <div className="px-4">
                 <AccountRow account={account} />
               </div>
-              {linkedJars.map(jar => (
-                <div key={jar.id} className="border-t border-slate-50 bg-slate-50/40 pl-8 pr-4">
-                  <div className="flex items-center gap-1.5 py-2.5">
-                    <ChevronRight size={12} className="text-slate-300 shrink-0" />
-                    <div className="flex items-center gap-2.5 flex-1">
-                      <div className="w-7 h-7 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
-                        <PiggyBank size={13} className="text-amber-600" />
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-slate-800">{jar.name}</p>
-                        <p className="text-xs text-slate-400">{jar.currency || '—'}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {balances.filter(b => b.account_id === jar.id).map(b => (
-                          <span key={b.id} className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">
-                            {formatCurrency(b.balance, b.currency)}
-                          </span>
-                        ))}
-                        <button onClick={() => deleteAccount(jar.id, 'jar')}
-                          className="text-slate-300 hover:text-red-400 transition-colors p-1 shrink-0">
-                          <Trash2 size={13} />
-                        </button>
+              {linkedJars.map(jar => {
+                const jarCur = jar.currency || 'EUR'
+                const jarBals = balances.filter(b => b.account_id === jar.id)
+                const jarOb = openingBalances.find(o => o.account_id === jar.id && o.currency === jarCur)
+                const jarObKey = `${jar.id}:${jarCur}`
+                return (
+                  <div key={jar.id} className="border-t border-slate-50 bg-slate-50/40 pl-8 pr-4">
+                    <div className="flex items-center gap-1.5 py-2.5">
+                      <ChevronRight size={12} className="text-slate-300 shrink-0" />
+                      <div className="flex items-center gap-2.5 flex-1">
+                        <div className="w-7 h-7 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
+                          <PiggyBank size={13} className="text-amber-600" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-slate-800">{jar.name}</p>
+                          <p className="text-xs text-slate-400">{jarCur}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {jarBals.map(b => {
+                            const ob = openingBalances.find(o => o.account_id === jar.id && o.currency === b.currency)
+                            return (
+                              <div key={b.id} className="text-right">
+                                <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">
+                                  {formatCurrency(b.balance + (ob?.amount ?? 0), b.currency)}
+                                </span>
+                                {ob && <p className="text-xs text-slate-400 mt-0.5">start {formatCurrency(ob.amount, b.currency)}</p>}
+                              </div>
+                            )
+                          })}
+                          <button onClick={() => openObEdit(jar.id, jarCur)}
+                            className={cn('p-1 transition-colors', editingObKey === jarObKey ? 'text-indigo-500' : 'text-slate-300 hover:text-indigo-400')}
+                            title="Startbedrag instellen">
+                            <CalendarDays size={13} />
+                          </button>
+                          <button onClick={() => deleteAccount(jar.id, 'jar')}
+                            className="text-slate-300 hover:text-red-400 transition-colors p-1 shrink-0">
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
                       </div>
                     </div>
+                    {editingObKey === jarObKey && (
+                      <div className="flex items-center gap-2 pb-3 pl-9">
+                        <span className="text-xs text-slate-500 font-medium whitespace-nowrap">{jarCur} startbedrag:</span>
+                        <input type="number" step="0.01" placeholder="0.00"
+                          value={obAmount} onChange={e => setObAmount(e.target.value)}
+                          className="w-28 px-2 py-1 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+                        <input type="date" value={obDate} onChange={e => setObDate(e.target.value)}
+                          className="px-2 py-1 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+                        <button onClick={() => saveOpeningBalance(jar.id, jarCur)} disabled={savingOb || !obDate}
+                          className="p-1.5 text-indigo-600 hover:text-indigo-800 disabled:opacity-30 transition-colors">
+                          <Check size={14} />
+                        </button>
+                        <button onClick={() => setEditingObKey(null)} className="p-1.5 text-slate-400 hover:text-slate-600 transition-colors">
+                          <X size={14} />
+                        </button>
+                      </div>
+                    )}
+                    {editingObKey === jarObKey && jarOb && (
+                      <p className="text-xs text-slate-400 pb-2 pl-9">Huidig startbedrag: {formatCurrency(jarOb.amount, jarCur)} op {jarOb.date}</p>
+                    )}
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           ))}
           {orphanJars.length > 0 && (

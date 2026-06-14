@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { Account, AccountBalance, Transaction, TransactionType, Vendor, AdminCategory, Loan } from '@/types'
+import { Account, AccountBalance, OpeningBalance, Transaction, TransactionType, Vendor, AdminCategory, Loan } from '@/types'
 import { formatCurrency, formatDate, cn, CURRENCIES } from '@/lib/utils'
 import { Upload, Sparkles, Search, ArrowUpDown, Link2, Unlink, PiggyBank, ChevronRight, X, Plus, Trash2, RotateCcw } from 'lucide-react'
 
@@ -36,6 +36,7 @@ function AdministratieInner() {
   const tab = (searchParams.get('tab') || 'overzicht') as Tab
   const [accounts, setAccounts] = useState<Account[]>([])
   const [balances, setBalances] = useState<AccountBalance[]>([])
+  const [openingBalances, setOpeningBalances] = useState<OpeningBalance[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [vendors, setVendors] = useState<Vendor[]>([])
   const [categories, setCategories] = useState<AdminCategory[]>([])
@@ -216,7 +217,7 @@ function AdministratieInner() {
       fetch('/api/categories'),
       fetch('/api/loans'),
     ])
-    if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []) }
+    if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []); setOpeningBalances(d.opening_balances || []) }
     if (txRes.ok) {
       const d = await txRes.json()
       setTransactions(d.transactions || [])
@@ -548,7 +549,7 @@ function AdministratieInner() {
 
     setTransactions(txs => txs.map(t => ids.includes(t.id) ? { ...t, status: 'processed' } : t))
     const [accRes, loanRes] = await Promise.all([fetch('/api/accounts'), fetch('/api/loans')])
-    if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []) }
+    if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []); setOpeningBalances(d.opening_balances || []) }
     if (loanRes.ok) { const d = await loanRes.json(); setLoans(d.loans || []) }
   }
 
@@ -561,7 +562,7 @@ function AdministratieInner() {
       setTransactions(txs => txs.map(t => t.id === tx.id ? { ...t, status: 'draft' } : t))
       setTxTab('draft')
       const accRes = await fetch('/api/accounts')
-      if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []) }
+      if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []); setOpeningBalances(d.opening_balances || []) }
     }
   }
 
@@ -583,7 +584,7 @@ function AdministratieInner() {
     setTransactions(txs => txs.map(t => selectedIds.has(t.id) ? { ...t, status: 'processed' } : t))
     setSelectedIds(new Set())
     const [accRes, loanRes] = await Promise.all([fetch('/api/accounts'), fetch('/api/loans')])
-    if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []) }
+    if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []); setOpeningBalances(d.opening_balances || []) }
     if (loanRes.ok) { const d = await loanRes.json(); setLoans(d.loans || []) }
   }
 
@@ -607,7 +608,7 @@ function AdministratieInner() {
     setSelectedIds(new Set())
     setTxTab('draft')
     const accRes = await fetch('/api/accounts')
-    if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []) }
+    if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []); setOpeningBalances(d.opening_balances || []) }
   }
 
   function openMatchPopup(tx: Transaction) {
@@ -759,7 +760,7 @@ function AdministratieInner() {
       fetch('/api/vendors'),
       fetch('/api/categories'),
     ])
-    if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []) }
+    if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []); setOpeningBalances(d.opening_balances || []) }
     if (txRes.ok) {
       const d = await txRes.json()
       const freshTxs: Transaction[] = d.transactions || []
@@ -812,7 +813,11 @@ function AdministratieInner() {
 
   const balancesByCurrency = balances
     .filter(b => regularAccounts.some(a => a.id === b.account_id))
-    .reduce((acc, b) => { acc[b.currency] = (acc[b.currency] || 0) + b.balance; return acc }, {} as Record<string, number>)
+    .reduce((acc, b) => {
+      const ob = openingBalances.find(o => o.account_id === b.account_id && o.currency === b.currency)
+      acc[b.currency] = (acc[b.currency] || 0) + b.balance + (ob?.amount ?? 0)
+      return acc
+    }, {} as Record<string, number>)
 
 
   const advanceCategoryNames = new Set(categories.filter(c => c.type === 'advance').map(c => c.name))
@@ -1061,7 +1066,10 @@ function AdministratieInner() {
                             </div>
                             <div className="text-right space-y-0.5">
                               {acctBalances.length === 0 ? <span className="text-xs text-slate-400">Geen saldo</span>
-                                : acctBalances.map(b => <p key={b.id} className="text-sm font-semibold">{formatCurrency(b.balance, b.currency)}</p>)}
+                                : acctBalances.map(b => {
+                                    const ob = openingBalances.find(o => o.account_id === account.id && o.currency === b.currency)
+                                    return <p key={b.id} className="text-sm font-semibold">{formatCurrency(b.balance + (ob?.amount ?? 0), b.currency)}</p>
+                                  })}
                             </div>
                           </div>
                           {linkedJars.map(jar => {
@@ -1078,7 +1086,10 @@ function AdministratieInner() {
                                 </div>
                                 <div className="text-right">
                                   {jarBals.length === 0 ? <span className="text-xs text-slate-400">Geen saldo</span>
-                                    : jarBals.map(b => <p key={b.id} className="text-sm font-semibold text-slate-800">{formatCurrency(b.balance, b.currency)}</p>)}
+                                    : jarBals.map(b => {
+                                        const ob = openingBalances.find(o => o.account_id === jar.id && o.currency === b.currency)
+                                        return <p key={b.id} className="text-sm font-semibold text-slate-800">{formatCurrency(b.balance + (ob?.amount ?? 0), b.currency)}</p>
+                                      })}
                                 </div>
                               </div>
                             )
@@ -1101,7 +1112,10 @@ function AdministratieInner() {
                           </div>
                           <div className="text-right">
                             {jarBals.length === 0 ? <span className="text-xs text-slate-400">Geen saldo</span>
-                              : jarBals.map(b => <p key={b.id} className="text-sm font-semibold">{formatCurrency(b.balance, b.currency)}</p>)}
+                              : jarBals.map(b => {
+                                  const ob = openingBalances.find(o => o.account_id === jar.id && o.currency === b.currency)
+                                  return <p key={b.id} className="text-sm font-semibold">{formatCurrency(b.balance + (ob?.amount ?? 0), b.currency)}</p>
+                                })}
                           </div>
                         </div>
                       )

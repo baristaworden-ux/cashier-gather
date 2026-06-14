@@ -8,12 +8,13 @@ export async function GET() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const [{ data: accounts }, { data: balances }] = await Promise.all([
+  const [{ data: accounts }, { data: balances }, { data: openingBalances }] = await Promise.all([
     supabase.from('admin_accounts').select('*').eq('user_id', user.id).order('created_at'),
     supabase.from('admin_account_balances').select('*').eq('user_id', user.id),
+    supabase.from('admin_opening_balances').select('*').eq('user_id', user.id),
   ])
 
-  return NextResponse.json({ accounts: accounts || [], balances: balances || [] })
+  return NextResponse.json({ accounts: accounts || [], balances: balances || [], opening_balances: openingBalances || [] })
 }
 
 export async function POST(req: NextRequest) {
