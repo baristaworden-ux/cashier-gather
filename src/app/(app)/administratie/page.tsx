@@ -120,9 +120,7 @@ function AdministratieInner() {
   const [transferResult, setTransferResult] = useState<{ exchange_rate: number; from: string; to: string } | null>(null)
 
   // Report
-  const [reportFrom, setReportFrom] = useState(() => {
-    const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
-  })
+  const [reportFrom, setReportFrom] = useState(() => `${new Date().getFullYear()}-01-01`)
   const [reportTo, setReportTo] = useState(() => new Date().toISOString().slice(0, 10))
   const [reportCurrency, setReportCurrency] = useState('EUR')
   const [reportSort] = useState<ReportSort>('expense_desc')
@@ -234,7 +232,7 @@ function AdministratieInner() {
     }
     if (tab === 'rapport') {
       const now = new Date()
-      setReportFrom(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`)
+      setReportFrom(`${now.getFullYear()}-01-01`)
       setReportTo(now.toISOString().slice(0, 10))
     }
   }, [tab, uncategorizedCount])
