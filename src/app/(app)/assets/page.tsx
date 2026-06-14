@@ -4,7 +4,6 @@ import { useEffect, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { Plus, Trash2, Pencil, Check, X, TrendingUp } from 'lucide-react'
 import { formatCurrency, cn, CURRENCIES } from '@/lib/utils'
-import { AccountBalance, OpeningBalance } from '@/types'
 
 type AssetCategory = 'cash' | 'metals' | 'crypto' | 'stocks'
 
@@ -56,7 +55,6 @@ function DonutChart({ segments }: { segments: { category: AssetCategory; value: 
         const startPct = cumPct
         cumPct += seg.pct
         const dashLen = circumference * seg.pct
-        const dashOffset = circumference * (1 - startPct) - circumference
         return (
           <circle
             key={seg.category}
@@ -91,8 +89,6 @@ function AssetsInner() {
   const tab = searchParams.get('tab') || 'overzicht'
 
   const [assets, setAssets] = useState<Asset[]>([])
-  const [balances, setBalances] = useState<AccountBalance[]>([])
-  const [openingBalances, setOpeningBalances] = useState<OpeningBalance[]>([])
   const [investedTotal, setInvestedTotal] = useState(0)
   const [loading, setLoading] = useState(true)
 
@@ -117,11 +113,7 @@ function AssetsInner() {
       fetch('/api/transactions?limit=2000'),
     ])
     if (assetsRes.ok) { const d = await assetsRes.json(); setAssets(d.assets || []) }
-    if (accRes.ok) {
-      const d = await accRes.json()
-      setBalances(d.balances || [])
-      setOpeningBalances(d.opening_balances || [])
-    }
+    if (!accRes.ok) console.warn('accounts fetch failed')
     if (txRes.ok) {
       const d = await txRes.json()
       const txs: { type: string; status: string; amount: number; currency: string }[] = d.transactions || []
