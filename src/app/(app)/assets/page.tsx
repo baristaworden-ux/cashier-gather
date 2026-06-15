@@ -95,6 +95,15 @@ function TickerSearch({ onSelect }: {
   )
 }
 
+interface Wallet {
+  id: string
+  asset_id: string
+  name: string
+  units: number
+  notes?: string
+  created_at: string
+}
+
 type AssetCategory = 'cash' | 'metals' | 'crypto' | 'stocks'
 
 interface Asset {
@@ -180,11 +189,20 @@ function AssetsInner() {
   const tab = searchParams.get('tab') || 'overzicht'
 
   const [assets, setAssets] = useState<Asset[]>([])
+  const [wallets, setWallets] = useState<Wallet[]>([])
   const [investedTotal, setInvestedTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null)
   const [refreshError, setRefreshError] = useState<string | null>(null)
+
+  // Wallet UI state
+  const [expandedWallets, setExpandedWallets] = useState<Set<string>>(new Set())
+  const [addingWalletFor, setAddingWalletFor] = useState<string | null>(null)
+  const [walletForm, setWalletForm] = useState({ name: '', units: '' })
+  const [editingWalletId, setEditingWalletId] = useState<string | null>(null)
+  const [editingWallet, setEditingWallet] = useState({ name: '', units: '' })
+  const [savingWallet, setSavingWallet] = useState(false)
 
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
@@ -195,11 +213,13 @@ function AssetsInner() {
 
   const loadData = useCallback(async () => {
     setLoading(true)
-    const [assetsRes, txRes] = await Promise.all([
+    const [assetsRes, walletsRes, txRes] = await Promise.all([
       fetch('/api/assets'),
+      fetch('/api/assets/wallets'),
       fetch('/api/transactions?limit=2000'),
     ])
     if (assetsRes.ok) { const d = await assetsRes.json(); setAssets(d.assets || []) }
+    if (walletsRes.ok) { const d = await walletsRes.json(); setWallets(d.wallets || []) }
     if (txRes.ok) {
       const d = await txRes.json()
       const txs: { type: string; status: string; amount: number; currency: string }[] = d.transactions || []
@@ -265,6 +285,40 @@ function AssetsInner() {
     setAssets(a => a.filter(x => x.id !== id))
   }
 
+  // ── Wallet functions ──
+  async function addWallet(assetId: string) {
+    if (!walletForm.name.trim()) return
+    setSavingWallet(true)
+    const res = await fetch('/api/assets/wallets', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ asset_id: assetId, name: walletForm.name, units: walletForm.units }),
+    })
+    if (res.ok) {
+      const { wallet } = await res.json()
+      setWallets(w => [...w, wallet])
+      setWalletForm({ name: '', units: '' })
+      setAddingWalletFor(null)
+    }
+    setSavingWallet(false)
+  }
+
+  async function saveWallet(id: string) {
+    const res = await fetch('/api/assets/wallets', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, name: editingWallet.name, units: editingWallet.units }),
+    })
+    if (res.ok) {
+      const { wallet } = await res.json()
+      setWallets(w => w.map(x => x.id === id ? wallet : x))
+    }
+    setEditingWalletId(null)
+  }
+
+  async function deleteWallet(id: string) {
+    await fetch(`/api/assets/wallets?id=${id}`, { method: 'DELETE' })
+    setWallets(w => w.filter(x => x.id !== id))
+  }
+
   function openEdit(asset: Asset) {
     setEditingId(asset.id)
     setEditForm({
@@ -276,10 +330,16 @@ function AssetsInner() {
     })
   }
 
-  const assetValue = (a: Asset) => a.units * a.current_price
+  const assetWallets = (assetId: string) => wallets.filter(w => w.asset_id === assetId)
+  const effectiveUnits = (a: Asset) => {
+    const aw = assetWallets(a.id)
+    return aw.length > 0 ? aw.reduce((s, w) => s + w.units, 0) : a.units
+  }
+  const assetValue = (a: Asset) => effectiveUnits(a) * a.current_price
   const formatUnits = (a: Asset) => {
-    const n = a.units % 1 === 0 ? a.units.toString() : a.units.toFixed(6).replace(/\.?0+$/, '')
-    return a.unit ? `${n} ${a.unit}` : n
+    const n = effectiveUnits(a)
+    const str = n % 1 === 0 ? n.toString() : n.toFixed(6).replace(/\.?0+$/, '')
+    return a.unit ? `${str} ${a.unit}` : str
   }
 
   const catTotals = ALL_CATEGORIES.reduce((acc, cat) => {
@@ -411,40 +471,65 @@ function AssetsInner() {
                       <tbody>
                         {catAssets.map((asset, i) => {
                           const total = assetValue(asset)
-                          const cost = asset.purchase_price ? asset.units * asset.purchase_price : null
+                          const units = effectiveUnits(asset)
+                          const cost = asset.purchase_price ? units * asset.purchase_price : null
                           const pnl = cost !== null ? total - cost : null
                           const pnlPct = cost && cost > 0 ? ((total - cost) / cost * 100) : null
+                          const aw = assetWallets(asset.id)
+                          const walletExpanded = expandedWallets.has(asset.id)
                           return (
-                            <tr key={asset.id} className={cn('border-b border-slate-50 last:border-0', i % 2 === 1 && 'bg-slate-50/40')}>
-                              <td className="px-4 py-3">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-medium text-slate-900">{asset.name}</span>
-                                  {hasAutoPrice(asset) && (
-                                    <span className="text-xs text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded font-mono">{asset.price_ticker}</span>
-                                  )}
-                                </div>
-                              </td>
-                              <td className="px-4 py-3 text-slate-500 font-mono text-xs">{asset.symbol || '—'}</td>
-                              <td className="px-4 py-3 text-right tabular-nums text-slate-700">{formatUnits(asset)}</td>
-                              <td className="px-4 py-3 text-right tabular-nums">{formatCurrency(asset.current_price, asset.currency)}</td>
-                              <td className="px-4 py-3 text-right font-semibold tabular-nums">{formatCurrency(total, asset.currency)}</td>
-                              {hasPnl && (
-                                <td className="px-4 py-3 text-right tabular-nums">
-                                  {pnl !== null ? (
-                                    <div>
-                                      <span className={pnl >= 0 ? 'text-emerald-600' : 'text-red-500'}>
-                                        {pnl >= 0 ? '+' : ''}{formatCurrency(pnl, asset.currency)}
-                                      </span>
-                                      {pnlPct !== null && (
-                                        <p className={cn('text-xs', pnl >= 0 ? 'text-emerald-500' : 'text-red-400')}>
-                                          {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(1)}%
-                                        </p>
-                                      )}
-                                    </div>
-                                  ) : '—'}
+                            <>
+                              <tr key={asset.id} className={cn('border-b border-slate-50', i % 2 === 1 && 'bg-slate-50/40')}>
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-medium text-slate-900">{asset.name}</span>
+                                    {hasAutoPrice(asset) && (
+                                      <span className="text-xs text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded font-mono">{asset.price_ticker}</span>
+                                    )}
+                                    {aw.length > 0 && (
+                                      <button
+                                        onClick={() => setExpandedWallets(s => { const n = new Set(s); walletExpanded ? n.delete(asset.id) : n.add(asset.id); return n })}
+                                        className="text-xs text-orange-600 bg-orange-50 hover:bg-orange-100 px-1.5 py-0.5 rounded transition-colors">
+                                        {aw.length} wallet{aw.length > 1 ? 's' : ''} {walletExpanded ? '▲' : '▼'}
+                                      </button>
+                                    )}
+                                  </div>
                                 </td>
-                              )}
-                            </tr>
+                                <td className="px-4 py-3 text-slate-500 font-mono text-xs">{asset.symbol || '—'}</td>
+                                <td className="px-4 py-3 text-right tabular-nums text-slate-700">{formatUnits(asset)}</td>
+                                <td className="px-4 py-3 text-right tabular-nums">{formatCurrency(asset.current_price, asset.currency)}</td>
+                                <td className="px-4 py-3 text-right font-semibold tabular-nums">{formatCurrency(total, asset.currency)}</td>
+                                {hasPnl && (
+                                  <td className="px-4 py-3 text-right tabular-nums">
+                                    {pnl !== null ? (
+                                      <div>
+                                        <span className={pnl >= 0 ? 'text-emerald-600' : 'text-red-500'}>
+                                          {pnl >= 0 ? '+' : ''}{formatCurrency(pnl, asset.currency)}
+                                        </span>
+                                        {pnlPct !== null && (
+                                          <p className={cn('text-xs', pnl >= 0 ? 'text-emerald-500' : 'text-red-400')}>
+                                            {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(1)}%
+                                          </p>
+                                        )}
+                                      </div>
+                                    ) : '—'}
+                                  </td>
+                                )}
+                              </tr>
+                              {walletExpanded && aw.map(w => (
+                                <tr key={w.id} className="bg-orange-50/40 border-b border-orange-100/60 last:border-0">
+                                  <td className="pl-8 pr-4 py-2 text-xs text-slate-600" colSpan={2}>
+                                    <span className="text-orange-400 mr-2">↳</span>{w.name}
+                                  </td>
+                                  <td className="px-4 py-2 text-right text-xs tabular-nums text-slate-500">
+                                    {w.units % 1 === 0 ? w.units : w.units.toFixed(6).replace(/\.?0+$/, '')} {asset.unit}
+                                  </td>
+                                  <td className="px-4 py-2 text-right text-xs tabular-nums text-slate-400">{formatCurrency(asset.current_price, asset.currency)}</td>
+                                  <td className="px-4 py-2 text-right text-xs font-medium tabular-nums text-slate-600">{formatCurrency(w.units * asset.current_price, asset.currency)}</td>
+                                  {hasPnl && <td />}
+                                </tr>
+                              ))}
+                            </>
                           )
                         })}
                       </tbody>
@@ -634,26 +719,100 @@ function AssetsInner() {
                             </div>
                           </div>
                         ) : (
-                          <div className="flex items-center justify-between px-4 py-3">
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <p className="text-sm font-medium text-slate-900">{asset.name}</p>
-                                {asset.symbol && <span className="text-xs font-mono text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{asset.symbol}</span>}
-                                {asset.price_ticker && <span className="text-xs font-mono text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded">{asset.price_ticker}</span>}
+                          <>
+                            <div className="flex items-center justify-between px-4 py-3">
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <p className="text-sm font-medium text-slate-900">{asset.name}</p>
+                                  {asset.symbol && <span className="text-xs font-mono text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{asset.symbol}</span>}
+                                  {asset.price_ticker && <span className="text-xs font-mono text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded">{asset.price_ticker}</span>}
+                                  {asset.category === 'crypto' && assetWallets(asset.id).length > 0 && (
+                                    <span className="text-xs text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded font-medium">
+                                      {assetWallets(asset.id).length} wallet{assetWallets(asset.id).length > 1 ? 's' : ''}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-xs text-slate-400 mt-0.5">
+                                  {formatUnits(asset)} · {formatCurrency(asset.current_price, asset.currency)} / {asset.unit || 'unit'}
+                                  {asset.purchase_date && ` · gekocht ${asset.purchase_date}`}
+                                </p>
                               </div>
-                              <p className="text-xs text-slate-400 mt-0.5">
-                                {formatUnits(asset)} · {formatCurrency(asset.current_price, asset.currency)} / {asset.unit || 'unit'}
-                                {asset.purchase_date && ` · gekocht ${asset.purchase_date}`}
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-3">
-                              <p className="text-sm font-semibold text-slate-800">{formatCurrency(assetValue(asset), asset.currency)}</p>
-                              <div className="flex gap-0.5">
-                                <button onClick={() => openEdit(asset)} className="p-1 text-slate-300 hover:text-indigo-500 transition-colors"><Pencil size={13} /></button>
-                                <button onClick={() => deleteAsset(asset.id)} className="p-1 text-slate-300 hover:text-red-400 transition-colors"><Trash2 size={13} /></button>
+                              <div className="flex items-center gap-3">
+                                <p className="text-sm font-semibold text-slate-800">{formatCurrency(assetValue(asset), asset.currency)}</p>
+                                <div className="flex items-center gap-0.5">
+                                  {asset.category === 'crypto' && (
+                                    <button
+                                      onClick={() => { setAddingWalletFor(addingWalletFor === asset.id ? null : asset.id); setWalletForm({ name: '', units: '' }) }}
+                                      title="Wallet toevoegen"
+                                      className="flex items-center gap-1 px-2 py-1 text-xs text-orange-600 bg-orange-50 hover:bg-orange-100 rounded transition-colors font-medium mr-1">
+                                      <Plus size={11} /> Wallet
+                                    </button>
+                                  )}
+                                  <button onClick={() => openEdit(asset)} className="p-1 text-slate-300 hover:text-indigo-500 transition-colors"><Pencil size={13} /></button>
+                                  <button onClick={() => deleteAsset(asset.id)} className="p-1 text-slate-300 hover:text-red-400 transition-colors"><Trash2 size={13} /></button>
+                                </div>
                               </div>
                             </div>
-                          </div>
+
+                            {/* Wallet list */}
+                            {assetWallets(asset.id).map(w => (
+                              <div key={w.id} className="border-t border-orange-100 bg-orange-50/30">
+                                {editingWalletId === w.id ? (
+                                  <div className="flex items-center gap-2 pl-8 pr-4 py-2">
+                                    <input type="text" value={editingWallet.name}
+                                      onChange={e => setEditingWallet(x => ({ ...x, name: e.target.value }))}
+                                      onKeyDown={e => e.key === 'Enter' && saveWallet(w.id)}
+                                      className="flex-1 px-2.5 py-1.5 text-sm border border-indigo-200 rounded-lg outline-none focus:border-indigo-400" />
+                                    <input type="number" step="any" value={editingWallet.units}
+                                      onChange={e => setEditingWallet(x => ({ ...x, units: e.target.value }))}
+                                      onKeyDown={e => e.key === 'Enter' && saveWallet(w.id)}
+                                      className="w-32 px-2.5 py-1.5 text-sm border border-indigo-200 rounded-lg outline-none focus:border-indigo-400"
+                                      placeholder="Hoeveelheid" />
+                                    <span className="text-xs text-slate-400 shrink-0">{asset.unit}</span>
+                                    <button onClick={() => saveWallet(w.id)} className="p-1.5 text-indigo-600 hover:text-indigo-800 transition-colors"><Check size={13} /></button>
+                                    <button onClick={() => setEditingWalletId(null)} className="p-1.5 text-slate-400 hover:text-slate-600 transition-colors"><X size={13} /></button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center justify-between pl-8 pr-4 py-2">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-orange-300 text-xs">↳</span>
+                                      <p className="text-sm text-slate-700">{w.name}</p>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                      <p className="text-sm text-slate-600 tabular-nums">
+                                        {w.units % 1 === 0 ? w.units : w.units.toFixed(6).replace(/\.?0+$/, '')} {asset.unit}
+                                      </p>
+                                      <div className="flex gap-0.5">
+                                        <button onClick={() => { setEditingWalletId(w.id); setEditingWallet({ name: w.name, units: String(w.units) }) }}
+                                          className="p-1 text-slate-300 hover:text-indigo-500 transition-colors"><Pencil size={12} /></button>
+                                        <button onClick={() => deleteWallet(w.id)}
+                                          className="p-1 text-slate-300 hover:text-red-400 transition-colors"><Trash2 size={12} /></button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+
+                            {/* Add wallet form */}
+                            {addingWalletFor === asset.id && (
+                              <div className="flex items-center gap-2 pl-8 pr-4 py-2.5 border-t border-orange-100 bg-orange-50/50">
+                                <input type="text" placeholder="Wallet naam (bijv. Ledger)" value={walletForm.name}
+                                  onChange={e => setWalletForm(f => ({ ...f, name: e.target.value }))}
+                                  autoFocus
+                                  onKeyDown={e => e.key === 'Enter' && addWallet(asset.id)}
+                                  className="flex-1 px-2.5 py-1.5 text-sm border border-orange-200 rounded-lg outline-none focus:border-orange-400 bg-white" />
+                                <input type="number" step="any" placeholder="Hoeveelheid" value={walletForm.units}
+                                  onChange={e => setWalletForm(f => ({ ...f, units: e.target.value }))}
+                                  onKeyDown={e => e.key === 'Enter' && addWallet(asset.id)}
+                                  className="w-32 px-2.5 py-1.5 text-sm border border-orange-200 rounded-lg outline-none focus:border-orange-400 bg-white" />
+                                <span className="text-xs text-slate-400 shrink-0">{asset.unit}</span>
+                                <button onClick={() => addWallet(asset.id)} disabled={!walletForm.name.trim() || savingWallet}
+                                  className="p-1.5 text-orange-600 hover:text-orange-800 disabled:opacity-40 transition-colors"><Check size={14} /></button>
+                                <button onClick={() => setAddingWalletFor(null)} className="p-1.5 text-slate-400 hover:text-slate-600 transition-colors"><X size={14} /></button>
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
                     ))}
