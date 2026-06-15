@@ -19,14 +19,17 @@ const YF_HEADERS = {
 }
 
 async function fetchYahooSingle(ticker: string): Promise<{ price: number; currency: string } | null> {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=1d`
-  let res = await fetch(url, { headers: YF_HEADERS, next: { revalidate: 0 } })
-  if (!res.ok) res = await fetch(url.replace('query1', 'query2'), { headers: YF_HEADERS, next: { revalidate: 0 } })
-  if (!res.ok) return null
-  const data = await res.json()
-  const meta = data?.chart?.result?.[0]?.meta
-  if (!meta?.regularMarketPrice) return null
-  return { price: meta.regularMarketPrice, currency: meta.currency ?? 'USD' }
+  const path = `/v8/finance/chart/${ticker}?interval=1d&range=1d&includePrePost=false`
+  for (const host of ['query1.finance.yahoo.com', 'query2.finance.yahoo.com']) {
+    try {
+      const res = await fetch(`https://${host}${path}`, { headers: YF_HEADERS, next: { revalidate: 0 } })
+      if (!res.ok) continue
+      const data = await res.json()
+      const meta = data?.chart?.result?.[0]?.meta
+      if (meta?.regularMarketPrice) return { price: meta.regularMarketPrice, currency: meta.currency ?? 'USD' }
+    } catch { continue }
+  }
+  return null
 }
 
 async function fetchYahooPrices(symbols: string[]): Promise<Record<string, { price: number; currency: string }>> {
