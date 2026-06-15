@@ -262,6 +262,7 @@ function AssetsInner() {
     if (res.ok) {
       setAssets(a => [...a, data.asset].sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name)))
       setForm(EMPTY_FORM)
+      if (form.price_ticker.trim()) refreshPrices(true)
     } else {
       setFormError(data.error || 'Opslaan mislukt.')
     }
@@ -600,8 +601,15 @@ function AssetsInner() {
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">Huidige prijs / unit</label>
-                    <input type="number" step="any" placeholder="0.00" value={form.current_price}
+                    <label className="block text-xs font-medium text-slate-600 mb-1">
+                      Huidige prijs / unit
+                      {form.price_ticker.trim() && (
+                        <span className="ml-2 font-normal text-emerald-600">· wordt automatisch opgehaald</span>
+                      )}
+                    </label>
+                    <input type="number" step="any"
+                      placeholder={form.price_ticker.trim() ? 'Optioneel — ticker haalt prijs op' : '0.00'}
+                      value={form.current_price}
                       onChange={e => setForm(f => ({ ...f, current_price: e.target.value }))}
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
                   </div>
