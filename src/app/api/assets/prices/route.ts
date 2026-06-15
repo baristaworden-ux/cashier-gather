@@ -13,25 +13,27 @@ async function fetchCoinGeckoPrices(tickers: string[], currencies: string[]): Pr
   return res.json()
 }
 
-async function fetchYahooPrices(symbols: string[]): Promise<Record<string, { price: number; currency: string }>> {
-  const syms = symbols.join(',')
-  const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(syms)}&fields=regularMarketPrice,currency`
-  const res = await fetch(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
-      Accept: 'application/json',
-    },
-    next: { revalidate: 0 },
-  })
-  if (!res.ok) throw new Error(`Yahoo Finance ${res.status}`)
+const YF_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+  Accept: 'application/json',
+}
+
+async function fetchYahooSingle(ticker: string): Promise<{ price: number; currency: string } | null> {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=1d`
+  let res = await fetch(url, { headers: YF_HEADERS, next: { revalidate: 0 } })
+  if (!res.ok) res = await fetch(url.replace('query1', 'query2'), { headers: YF_HEADERS, next: { revalidate: 0 } })
+  if (!res.ok) return null
   const data = await res.json()
-  const result: Record<string, { price: number; currency: string }> = {}
-  for (const q of data?.quoteResponse?.result ?? []) {
-    if (q.symbol && q.regularMarketPrice !== undefined) {
-      result[q.symbol.toUpperCase()] = { price: q.regularMarketPrice, currency: q.currency ?? 'USD' }
-    }
-  }
-  return result
+  const meta = data?.chart?.result?.[0]?.meta
+  if (!meta?.regularMarketPrice) return null
+  return { price: meta.regularMarketPrice, currency: meta.currency ?? 'USD' }
+}
+
+async function fetchYahooPrices(symbols: string[]): Promise<Record<string, { price: number; currency: string }>> {
+  const results = await Promise.all(symbols.map(async s => ({ s, r: await fetchYahooSingle(s) })))
+  const out: Record<string, { price: number; currency: string }> = {}
+  for (const { s, r } of results) if (r) out[s.toUpperCase()] = r
+  return out
 }
 
 export async function POST() {
