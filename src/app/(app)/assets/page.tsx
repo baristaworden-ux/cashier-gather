@@ -205,6 +205,7 @@ function AssetsInner() {
   const [savingWallet, setSavingWallet] = useState(false)
 
   const [form, setForm] = useState(EMPTY_FORM)
+  const [formWallets, setFormWallets] = useState<{ name: string; units: string }[]>([])
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
@@ -235,8 +236,8 @@ function AssetsInner() {
     try {
       const res = await fetch('/api/assets/prices', { method: 'POST' })
       const data = await res.json()
-      if (res.ok && data.assets && data.assets.length > 0) {
-        setAssets(data.assets)
+      if (res.ok) {
+        if (data.assets && data.assets.length > 0) setAssets(data.assets)
         setLastRefreshed(new Date())
       } else {
         setRefreshError('Prijzen ophalen mislukt')
@@ -254,15 +255,28 @@ function AssetsInner() {
   async function addAsset() {
     if (!form.name.trim() || !form.category) return
     setSaving(true); setFormError(null)
+
+    const validWallets = formWallets.filter(w => w.name.trim())
+    const walletTotal = validWallets.reduce((s, w) => s + (parseFloat(w.units) || 0), 0)
+    const submitForm = validWallets.length > 0 ? { ...form, units: String(walletTotal) } : form
+
     const res = await fetch('/api/assets', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(form),
+      body: JSON.stringify(submitForm),
     })
     const data = await res.json()
     if (res.ok) {
-      setAssets(a => [...a, data.asset].sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name)))
+      const newAsset = data.asset
+      if (validWallets.length > 0) {
+        await Promise.all(validWallets.map(w => fetch('/api/assets/wallets', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ asset_id: newAsset.id, name: w.name, units: w.units }),
+        }).then(r => r.json()).then(d => { if (d.wallet) setWallets(ws => [...ws, d.wallet]) })))
+      }
+      setAssets(a => [...a, newAsset].sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name)))
       setForm(EMPTY_FORM)
-      if (form.price_ticker.trim()) refreshPrices(true)
+      setFormWallets([])
+      if (submitForm.price_ticker.trim()) refreshPrices(true)
     } else {
       setFormError(data.error || 'Opslaan mislukt.')
     }
@@ -564,7 +578,7 @@ function AssetsInner() {
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1">Categorie *</label>
-                    <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value as AssetCategory, unit: UNIT_DEFAULTS[e.target.value as AssetCategory] }))}
+                    <select value={form.category} onChange={e => { const cat = e.target.value as AssetCategory; setForm(f => ({ ...f, category: cat, unit: UNIT_DEFAULTS[cat] })); if (cat !== 'crypto') setFormWallets([]) }}
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
                       {ALL_CATEGORIES.map(c => <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>)}
                     </select>
@@ -595,10 +609,21 @@ function AssetsInner() {
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">Aantal units</label>
-                    <input type="number" step="any" placeholder="1.0" value={form.units}
-                      onChange={e => setForm(f => ({ ...f, units: e.target.value }))}
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+                    <label className="block text-xs font-medium text-slate-600 mb-1">
+                      Aantal units
+                      {form.category === 'crypto' && formWallets.filter(w => w.name.trim()).length > 0 && (
+                        <span className="ml-2 font-normal text-orange-500">· som van wallets</span>
+                      )}
+                    </label>
+                    {form.category === 'crypto' && formWallets.filter(w => w.name.trim()).length > 0 ? (
+                      <div className="w-full px-3 py-2 text-sm border border-slate-100 rounded-lg bg-slate-50 text-slate-500 tabular-nums">
+                        {formWallets.reduce((s, w) => s + (parseFloat(w.units) || 0), 0).toFixed(6).replace(/\.?0+$/, '') || '0'} {form.unit}
+                      </div>
+                    ) : (
+                      <input type="number" step="any" placeholder="1.0" value={form.units}
+                        onChange={e => setForm(f => ({ ...f, units: e.target.value }))}
+                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+                    )}
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1">
@@ -614,6 +639,35 @@ function AssetsInner() {
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
                   </div>
                 </div>
+
+                {/* Inline wallet builder for crypto */}
+                {form.category === 'crypto' && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-medium text-slate-600">Wallets <span className="font-normal text-slate-400">(optioneel)</span></label>
+                      <button type="button"
+                        onClick={() => setFormWallets(w => [...w, { name: '', units: '' }])}
+                        className="flex items-center gap-1 text-xs text-orange-600 hover:text-orange-700 font-medium transition-colors">
+                        <Plus size={11} /> Wallet toevoegen
+                      </button>
+                    </div>
+                    {formWallets.map((w, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <input type="text" placeholder="Wallet naam (bijv. Ledger)"
+                          value={w.name}
+                          onChange={e => setFormWallets(ws => ws.map((x, j) => j === i ? { ...x, name: e.target.value } : x))}
+                          className="flex-1 px-2.5 py-2 text-sm border border-orange-200 rounded-lg outline-none focus:border-orange-400 bg-orange-50/30" />
+                        <input type="number" step="any" placeholder="Hoeveelheid"
+                          value={w.units}
+                          onChange={e => setFormWallets(ws => ws.map((x, j) => j === i ? { ...x, units: e.target.value } : x))}
+                          className="w-36 px-2.5 py-2 text-sm border border-orange-200 rounded-lg outline-none focus:border-orange-400 bg-orange-50/30" />
+                        <span className="text-xs text-slate-400 shrink-0">{form.unit || 'coins'}</span>
+                        <button type="button" onClick={() => setFormWallets(ws => ws.filter((_, j) => j !== i))}
+                          className="p-1 text-slate-300 hover:text-red-400 transition-colors shrink-0"><X size={14} /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {(form.category === 'stocks' || form.category === 'metals') && (
                   <div className="p-3 bg-slate-50 rounded-xl space-y-2 border border-slate-100">
