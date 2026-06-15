@@ -695,13 +695,36 @@ function AssetsInner() {
                   </div>
                 )}
 
-                {(form.category === 'stocks' || form.category === 'metals') && (
+                {form.category === 'metals' && (
+                  <div className="p-3 bg-amber-50 rounded-xl border border-amber-100 space-y-2">
+                    <p className="text-xs font-medium text-amber-700">Kies een edelmetaal</p>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { name: 'Goud', ticker: 'GC=F', symbol: 'XAU', unit: 'oz' },
+                        { name: 'Zilver', ticker: 'SI=F', symbol: 'XAG', unit: 'oz' },
+                        { name: 'Platina', ticker: 'PL=F', symbol: 'XPT', unit: 'oz' },
+                        { name: 'Palladium', ticker: 'PA=F', symbol: 'XPD', unit: 'oz' },
+                      ].map(m => (
+                        <button key={m.ticker} type="button"
+                          onClick={() => {
+                            setForm(f => ({ ...f, name: f.name || m.name, symbol: m.symbol, price_ticker: m.ticker, unit: m.unit }))
+                            handleTickerChange(m.ticker)
+                          }}
+                          className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${form.price_ticker === m.ticker ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-amber-700 border-amber-200 hover:border-amber-400'}`}>
+                          {m.name} <span className="font-mono opacity-60">{m.ticker}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-amber-600/70">Of type een andere ticker handmatig in het veld hieronder</p>
+                  </div>
+                )}
+
+                {form.category === 'stocks' && (
                   <div className="p-3 bg-slate-50 rounded-xl space-y-2 border border-slate-100">
                     <TickerSearch onSelect={r => {
                       setForm(f => ({ ...f, name: f.name || r.name, symbol: r.symbol, price_ticker: r.symbol }))
                       handleTickerChange(r.symbol)
                     }} />
-                    <p className="text-xs text-slate-400">Of vul de ticker handmatig in hieronder. Edelmetalen: <span className="font-mono">GC=F</span> (goud), <span className="font-mono">SI=F</span> (zilver)</p>
                   </div>
                 )}
 
