@@ -208,6 +208,9 @@ function AssetsInner() {
   const [formWallets, setFormWallets] = useState<{ name: string; units: string }[]>([])
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+  const [lookingUpPrice, setLookingUpPrice] = useState(false)
+  const [lookupError, setLookupError] = useState<string | null>(null)
+  const tickerLookupTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState<Partial<typeof EMPTY_FORM>>({})
@@ -251,6 +254,29 @@ function AssetsInner() {
   useEffect(() => {
     loadData().then(() => refreshPrices(true))
   }, [loadData, refreshPrices])
+
+  function handleTickerChange(ticker: string) {
+    setForm(f => ({ ...f, price_ticker: ticker }))
+    setLookupError(null)
+    if (tickerLookupTimer.current) clearTimeout(tickerLookupTimer.current)
+    if (!ticker.trim()) return
+    tickerLookupTimer.current = setTimeout(async () => {
+      setLookingUpPrice(true)
+      try {
+        const res = await fetch(`/api/assets/price-lookup?ticker=${encodeURIComponent(ticker.trim())}&category=${form.category}&currency=${form.currency}`)
+        const data = await res.json()
+        if (res.ok && data.price !== undefined) {
+          setForm(f => ({ ...f, current_price: String(data.price) }))
+          setLookupError(null)
+        } else {
+          setLookupError(data.error || 'Ticker niet herkend')
+        }
+      } catch {
+        setLookupError('Verbindingsfout')
+      }
+      setLookingUpPrice(false)
+    }, 600)
+  }
 
   async function addAsset() {
     if (!form.name.trim() || !form.category) return
@@ -628,12 +654,12 @@ function AssetsInner() {
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1">
                       Huidige prijs / unit
-                      {form.price_ticker.trim() && (
-                        <span className="ml-2 font-normal text-emerald-600">· wordt automatisch opgehaald</span>
+                      {form.price_ticker.trim() && !lookingUpPrice && !lookupError && form.current_price && (
+                        <span className="ml-2 font-normal text-emerald-600">· opgehaald ✓</span>
                       )}
                     </label>
                     <input type="number" step="any"
-                      placeholder={form.price_ticker.trim() ? 'Optioneel — ticker haalt prijs op' : '0.00'}
+                      placeholder={form.price_ticker.trim() ? 'Wordt automatisch opgehaald…' : '0.00'}
                       value={form.current_price}
                       onChange={e => setForm(f => ({ ...f, current_price: e.target.value }))}
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
@@ -671,12 +697,10 @@ function AssetsInner() {
 
                 {(form.category === 'stocks' || form.category === 'metals') && (
                   <div className="p-3 bg-slate-50 rounded-xl space-y-2 border border-slate-100">
-                    <TickerSearch onSelect={r => setForm(f => ({
-                      ...f,
-                      name: f.name || r.name,
-                      symbol: r.symbol,
-                      price_ticker: r.symbol,
-                    }))} />
+                    <TickerSearch onSelect={r => {
+                      setForm(f => ({ ...f, name: f.name || r.name, symbol: r.symbol, price_ticker: r.symbol }))
+                      handleTickerChange(r.symbol)
+                    }} />
                     <p className="text-xs text-slate-400">Of vul de ticker handmatig in hieronder. Edelmetalen: <span className="font-mono">GC=F</span> (goud), <span className="font-mono">SI=F</span> (zilver)</p>
                   </div>
                 )}
@@ -692,12 +716,14 @@ function AssetsInner() {
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1">
                       Prijs-ticker
+                      {lookingUpPrice && <span className="ml-2 font-normal text-slate-400">· prijs ophalen…</span>}
+                      {!lookingUpPrice && lookupError && <span className="ml-2 font-normal text-red-500">· {lookupError}</span>}
                     </label>
                     <input type="text" placeholder={
                       form.category === 'crypto' ? 'bijv: bitcoin' :
                       form.category === 'metals' ? 'bijv: GC=F' : 'bijv: AAPL'
                     } value={form.price_ticker}
-                      onChange={e => setForm(f => ({ ...f, price_ticker: e.target.value }))}
+                      onChange={e => handleTickerChange(e.target.value)}
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 font-mono" />
                   </div>
                 )}
