@@ -47,7 +47,9 @@ export async function POST() {
     .neq('price_ticker', '')
 
   if (!assets || assets.length === 0) {
-    return NextResponse.json({ updated: 0, assets: [] })
+    const { data: allAssets } = await supabase
+      .from('admin_assets').select('*').eq('user_id', user.id).order('category').order('name')
+    return NextResponse.json({ updated: 0, assets: allAssets || [] })
   }
 
   const priceMap: Record<string, number> = {}

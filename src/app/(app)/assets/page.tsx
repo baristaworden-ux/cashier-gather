@@ -235,7 +235,7 @@ function AssetsInner() {
     try {
       const res = await fetch('/api/assets/prices', { method: 'POST' })
       const data = await res.json()
-      if (res.ok && data.assets) {
+      if (res.ok && data.assets && data.assets.length > 0) {
         setAssets(data.assets)
         setLastRefreshed(new Date())
       } else {
