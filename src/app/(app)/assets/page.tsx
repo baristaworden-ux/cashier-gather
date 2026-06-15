@@ -489,7 +489,7 @@ function AssetsInner() {
                                     )}
                                     {aw.length > 0 && (
                                       <button
-                                        onClick={() => setExpandedWallets(s => { const n = new Set(s); walletExpanded ? n.delete(asset.id) : n.add(asset.id); return n })}
+                                        onClick={() => setExpandedWallets(s => { const n = new Set(s); if (walletExpanded) n.delete(asset.id); else n.add(asset.id); return n })}
                                         className="text-xs text-orange-600 bg-orange-50 hover:bg-orange-100 px-1.5 py-0.5 rounded transition-colors">
                                         {aw.length} wallet{aw.length > 1 ? 's' : ''} {walletExpanded ? '▲' : '▼'}
                                       </button>
