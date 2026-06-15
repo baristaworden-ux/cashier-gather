@@ -1,47 +1,79 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const YF_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
-  Accept: 'application/json',
+// Stooq ticker mapping for metals (returns USD futures price)
+const METALS_MAP: Record<string, string> = {
+  'GC=F': 'gc.f',  // Gold
+  'SI=F': 'si.f',  // Silver
+  'PL=F': 'pl.f',  // Platinum
+  'PA=F': 'pa.f',  // Palladium
 }
 
-async function fetchYahooPrice(ticker: string): Promise<{ price: number; currency: string } | null> {
-  // Do NOT encodeURIComponent — futures like GC=F need the literal = in the path
-  const path = `/v8/finance/chart/${ticker}?interval=1d&range=1d&includePrePost=false`
-  for (const host of ['query1.finance.yahoo.com', 'query2.finance.yahoo.com']) {
-    try {
-      const res = await fetch(`https://${host}${path}`, { headers: YF_HEADERS, next: { revalidate: 0 } })
-      if (!res.ok) continue
-      const data = await res.json()
-      const meta = data?.chart?.result?.[0]?.meta
-      if (meta?.regularMarketPrice) return { price: meta.regularMarketPrice, currency: meta.currency ?? 'USD' }
-    } catch { continue }
-  }
-  return null
+async function fetchStooqPrice(ticker: string): Promise<number | null> {
+  const sym = METALS_MAP[ticker.toUpperCase()] ?? ticker.replace('=F', '.f').toLowerCase()
+  const url = `https://stooq.com/q/l/?s=${sym}&f=sd2t2ohlcv&h&e=csv`
+  try {
+    const res = await fetch(url, { cache: 'no-store' })
+    if (!res.ok) return null
+    const text = await res.text()
+    const lines = text.trim().split('\n')
+    if (lines.length < 2) return null
+    const cols = lines[1].split(',')
+    const close = parseFloat(cols[6])
+    return isNaN(close) || close <= 0 ? null : close
+  } catch { return null }
+}
+
+async function convertToEur(usdPrice: number): Promise<number> {
+  try {
+    const res = await fetch('https://api.frankfurter.app/latest?from=USD&to=EUR', { next: { revalidate: 3600 } })
+    if (!res.ok) return usdPrice * 0.92
+    const data = await res.json()
+    const rate: number = data?.rates?.EUR ?? 0.92
+    return usdPrice * rate
+  } catch { return usdPrice * 0.92 }
+}
+
+async function fetchCoinGeckoPrice(ticker: string, currency: string): Promise<number | null> {
+  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(ticker)}&vs_currencies=${currency}`
+  try {
+    const res = await fetch(url, { headers: { Accept: 'application/json' }, cache: 'no-store' })
+    if (!res.ok) return null
+    const data = await res.json()
+    return data[ticker.toLowerCase()]?.[currency.toLowerCase()] ?? null
+  } catch { return null }
 }
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const ticker = searchParams.get('ticker')?.trim()
   const category = searchParams.get('category') || 'stocks'
-  const currency = (searchParams.get('currency') || 'EUR').toLowerCase()
+  const currency = (searchParams.get('currency') || 'EUR').toUpperCase()
 
   if (!ticker) return NextResponse.json({ error: 'Missing ticker' }, { status: 400 })
 
   try {
     if (category === 'crypto') {
-      const url = `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(ticker)}&vs_currencies=${currency}`
-      const res = await fetch(url, { headers: { Accept: 'application/json' }, next: { revalidate: 0 } })
-      if (!res.ok) return NextResponse.json({ error: 'CoinGecko fout' }, { status: 502 })
-      const data = await res.json()
-      const price = data[ticker.toLowerCase()]?.[currency]
-      if (price === undefined) return NextResponse.json({ error: 'Ticker niet gevonden' }, { status: 404 })
+      const price = await fetchCoinGeckoPrice(ticker, currency.toLowerCase())
+      if (price === null) return NextResponse.json({ error: 'Ticker niet gevonden' }, { status: 404 })
       return NextResponse.json({ price })
-    } else {
-      const result = await fetchYahooPrice(ticker)
-      if (!result) return NextResponse.json({ error: 'Ticker niet gevonden' }, { status: 404 })
-      return NextResponse.json({ price: result.price, priceCurrency: result.currency })
     }
+
+    if (category === 'metals') {
+      const usdPrice = await fetchStooqPrice(ticker)
+      if (usdPrice === null) return NextResponse.json({ error: 'Prijs niet beschikbaar' }, { status: 404 })
+      const price = currency === 'EUR' ? await convertToEur(usdPrice) : usdPrice
+      return NextResponse.json({ price: Math.round(price * 100) / 100 })
+    }
+
+    // Stocks: try Stooq first (add .us for US stocks if no exchange suffix)
+    const sym = ticker.includes('.') ? ticker.toLowerCase() : `${ticker.toLowerCase()}.us`
+    const usdPrice = await fetchStooqPrice(sym)
+    if (usdPrice !== null) {
+      const price = currency === 'EUR' ? await convertToEur(usdPrice) : usdPrice
+      return NextResponse.json({ price: Math.round(price * 100) / 100 })
+    }
+
+    return NextResponse.json({ error: 'Ticker niet gevonden' }, { status: 404 })
   } catch {
     return NextResponse.json({ error: 'Verbindingsfout' }, { status: 502 })
   }
