@@ -1,9 +1,99 @@
 'use client'
 
-import { useEffect, useState, useCallback, Suspense } from 'react'
+import { useEffect, useState, useCallback, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { Plus, Trash2, Pencil, Check, X, TrendingUp, RefreshCw } from 'lucide-react'
+import { Plus, Trash2, Pencil, Check, X, TrendingUp, RefreshCw, Search } from 'lucide-react'
 import { formatCurrency, cn, CURRENCIES } from '@/lib/utils'
+
+interface TickerResult {
+  symbol: string
+  name: string
+  exchange: string
+  type: string
+}
+
+function TickerSearch({ onSelect }: {
+  onSelect: (r: TickerResult) => void
+}) {
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<TickerResult[]>([])
+  const [loading, setLoading] = useState(false)
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  function handleChange(v: string) {
+    setQuery(v)
+    if (timer.current) clearTimeout(timer.current)
+    if (v.length < 2) { setResults([]); setOpen(false); return }
+    timer.current = setTimeout(async () => {
+      setLoading(true)
+      try {
+        const res = await fetch(`/api/assets/search?q=${encodeURIComponent(v)}`)
+        const data = await res.json()
+        setResults(data.results || [])
+        setOpen(true)
+      } catch { setResults([]) }
+      setLoading(false)
+    }, 350)
+  }
+
+  function pick(r: TickerResult) {
+    onSelect(r)
+    setQuery('')
+    setResults([])
+    setOpen(false)
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <label className="block text-xs font-medium text-slate-600 mb-1">Zoek aandeel / ETF op naam</label>
+      <div className="relative">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+        <input
+          type="text"
+          value={query}
+          onChange={e => handleChange(e.target.value)}
+          onFocus={() => results.length > 0 && setOpen(true)}
+          placeholder="bijv. ASML, Apple, iShares…"
+          className="w-full pl-8 pr-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400"
+        />
+        {loading && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">…</span>}
+      </div>
+      {open && results.length > 0 && (
+        <div className="absolute z-50 top-full mt-1 left-0 right-0 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
+          {results.map(r => (
+            <button key={r.symbol} type="button"
+              onMouseDown={() => pick(r)}
+              className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-indigo-50 text-left transition-colors border-b border-slate-50 last:border-0">
+              <div>
+                <span className="text-sm font-medium text-slate-900">{r.name}</span>
+                <span className="text-xs text-slate-400 ml-2">{r.exchange}</span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-xs text-slate-400">{r.type}</span>
+                <span className="font-mono text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded font-semibold">{r.symbol}</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+      {open && results.length === 0 && !loading && query.length >= 2 && (
+        <div className="absolute z-50 top-full mt-1 left-0 right-0 bg-white border border-slate-200 rounded-xl shadow-lg px-3 py-2.5 text-sm text-slate-400">
+          Geen resultaten gevonden
+        </div>
+      )}
+    </div>
+  )
+}
 
 type AssetCategory = 'cash' | 'metals' | 'crypto' | 'stocks'
 
@@ -432,10 +522,29 @@ function AssetsInner() {
                   </div>
                 </div>
 
+                {(form.category === 'stocks' || form.category === 'metals') && (
+                  <div className="p-3 bg-slate-50 rounded-xl space-y-2 border border-slate-100">
+                    <TickerSearch onSelect={r => setForm(f => ({
+                      ...f,
+                      name: f.name || r.name,
+                      symbol: r.symbol,
+                      price_ticker: r.symbol,
+                    }))} />
+                    <p className="text-xs text-slate-400">Of vul de ticker handmatig in hieronder. Edelmetalen: <span className="font-mono">GC=F</span> (goud), <span className="font-mono">SI=F</span> (zilver)</p>
+                  </div>
+                )}
+
+                {form.category === 'crypto' && (
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <p className="text-xs text-slate-500 font-medium mb-1">Crypto ticker (CoinGecko ID)</p>
+                    <p className="text-xs text-slate-400">{TICKER_HINTS.crypto}</p>
+                  </div>
+                )}
+
                 {form.category !== 'cash' && (
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1">
-                      Automatische prijs-ticker
+                      Prijs-ticker
                     </label>
                     <input type="text" placeholder={
                       form.category === 'crypto' ? 'bijv: bitcoin' :
@@ -443,7 +552,6 @@ function AssetsInner() {
                     } value={form.price_ticker}
                       onChange={e => setForm(f => ({ ...f, price_ticker: e.target.value }))}
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 font-mono" />
-                    <p className="text-xs text-slate-400 mt-1">{TICKER_HINTS[form.category]}</p>
                   </div>
                 )}
 
