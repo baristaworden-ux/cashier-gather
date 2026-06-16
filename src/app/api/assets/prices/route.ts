@@ -7,19 +7,22 @@ const ECB_METALS: Record<string, string> = {
   'SI=F': 'XAG',
 }
 
+let ecbXmlCache: { xml: string; ts: number } | null = null
+
 async function fetchECBPrice(metalCode: string): Promise<number | null> {
-  const url = `https://data-api.ecb.europa.eu/service/data/EXR/D.${metalCode}.EUR.SP00.A?lastNObservations=1&format=jsondata`
   try {
-    const res = await fetch(url, { headers: { Accept: 'application/json' }, cache: 'no-store' })
-    if (!res.ok) return null
-    const data = await res.json()
-    const series = Object.values(data?.dataSets?.[0]?.series ?? {})[0] as { observations: Record<string, number[]> } | undefined
-    const obs = series?.observations
-    if (!obs) return null
-    const lastKey = Object.keys(obs).sort((a, b) => Number(b) - Number(a))[0]
-    const val = obs[lastKey]?.[0]
-    if (typeof val !== 'number' || val <= 0) return null
-    return val > 1 ? val : 1 / val
+    // Cache the XML for 1 hour to avoid hammering ECB
+    if (!ecbXmlCache || Date.now() - ecbXmlCache.ts > 3_600_000) {
+      const res = await fetch('https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml', {
+        headers: { Accept: 'application/xml, text/xml, */*' }, cache: 'no-store',
+      })
+      if (!res.ok) return null
+      ecbXmlCache = { xml: await res.text(), ts: Date.now() }
+    }
+    const match = ecbXmlCache.xml.match(new RegExp(`<Cube currency="${metalCode}" rate="([^"]+)"`))
+    if (!match) return null
+    const rate = parseFloat(match[1])
+    return isNaN(rate) || rate <= 0 ? null : Math.round((1 / rate) * 100) / 100
   } catch { return null }
 }
 
