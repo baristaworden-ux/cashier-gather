@@ -244,7 +244,8 @@ function AssetsInner() {
       fetch('/api/assets/wallets'),
       fetch('/api/transactions?limit=2000'),
     ])
-    if (assetsRes.ok) { const d = await assetsRes.json(); setAssets(d.assets || []) }
+    let loadedAssets: Asset[] = []
+    if (assetsRes.ok) { const d = await assetsRes.json(); loadedAssets = d.assets || []; setAssets(loadedAssets) }
     if (walletsRes.ok) { const d = await walletsRes.json(); setWallets(d.wallets || []) }
     if (txRes.ok) {
       const d = await txRes.json()
@@ -252,6 +253,7 @@ function AssetsInner() {
       setInvestedTotal(txs.filter(t => t.status === 'processed' && t.type === 'investment' && t.currency === 'EUR').reduce((s, t) => s + t.amount, 0))
     }
     setLoading(false)
+    return loadedAssets
   }, [])
 
   // Auto-refresh prices on mount
@@ -273,11 +275,37 @@ function AssetsInner() {
     if (!silent) setRefreshing(false)
   }, [])
 
-  useEffect(() => {
-    loadData().then(() => refreshPrices(true))
-  }, [loadData, refreshPrices])
+  // Fetch stock/ETF prices directly from browser (Yahoo Finance blocks Vercel IPs)
+  const refreshStockPrices = useCallback(async (stockList: Asset[]) => {
+    const toFetch = stockList.filter(a => a.category === 'stocks' && a.price_ticker)
+    if (toFetch.length === 0) return
 
-  function handleTickerChange(ticker: string) {
+    const updates: { id: string; price: number }[] = []
+    await Promise.all(toFetch.map(async a => {
+      try {
+        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(a.price_ticker!)}?interval=1d&range=1d`
+        const res = await fetch(url)
+        if (!res.ok) return
+        const data = await res.json()
+        const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice
+        if (typeof price === 'number') updates.push({ id: a.id, price })
+      } catch { /* CORS / network blocked — skip */ }
+    }))
+
+    if (updates.length === 0) return
+    setAssets(prev => prev.map(a => { const u = updates.find(x => x.id === a.id); return u ? { ...a, current_price: u.price } : a }))
+    await Promise.all(updates.map(u => fetch('/api/assets', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: u.id, current_price: u.price }) })))
+  }, [])
+
+  useEffect(() => {
+    loadData().then(loaded => {
+      refreshPrices(true)
+      refreshStockPrices(loaded)
+    })
+  }, [loadData, refreshPrices, refreshStockPrices])
+
+  function handleTickerChange(ticker: string, category?: string) {
+    const cat = category ?? form.category
     setForm(f => ({ ...f, price_ticker: ticker }))
     setLookupError(null)
     if (tickerLookupTimer.current) clearTimeout(tickerLookupTimer.current)
@@ -285,7 +313,28 @@ function AssetsInner() {
     tickerLookupTimer.current = setTimeout(async () => {
       setLookingUpPrice(true)
       try {
-        const res = await fetch(`/api/assets/price-lookup?ticker=${encodeURIComponent(ticker.trim())}&category=${form.category}&currency=${form.currency}`)
+        // Stocks/ETFs: fetch directly from browser (Yahoo Finance blocks Vercel IPs)
+        if (cat === 'stocks') {
+          try {
+            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker.trim())}?interval=1d&range=1d`
+            const res = await fetch(url)
+            if (res.ok) {
+              const data = await res.json()
+              const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice
+              if (typeof price === 'number') {
+                setForm(f => ({ ...f, current_price: String(price) }))
+                setLookupError(null)
+                setLookingUpPrice(false)
+                return
+              }
+            }
+          } catch { /* CORS blocked — will fall through to manual entry message */ }
+          setLookupError('Vul prijs handmatig in')
+          setLookingUpPrice(false)
+          return
+        }
+        // Crypto / metals: via server-side API route (CoinGecko)
+        const res = await fetch(`/api/assets/price-lookup?ticker=${encodeURIComponent(ticker.trim())}&category=${cat}&currency=${form.currency}`)
         const data = await res.json()
         if (res.ok && data.price !== undefined) {
           setForm(f => ({ ...f, current_price: String(data.price) }))
