@@ -846,9 +846,17 @@ function AdministratieInner() {
     })
     const data = await res.json()
     if (res.ok) {
+      console.log('[debug] balance records after manual tx:', data._debug?.balanceRecords)
       setTransactions(prev => [data.transaction, ...prev])
       setManualTx(m => ({ ...m, description: '', amount: '', category: '' }))
       setShowManualTx(false)
+      // Reload balances so overzicht reflects the updated stored balance immediately
+      const accRes = await fetch('/api/accounts')
+      if (accRes.ok) {
+        const accData = await accRes.json()
+        setBalances(accData.balances || [])
+        setOpeningBalances(accData.opening_balances || [])
+      }
     } else {
       setManualTxError(data.error || 'Opslaan mislukt')
     }

@@ -60,27 +60,30 @@ export async function POST(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Increment the existing balance by the transaction delta.
-  // We avoid filtering by currency in the lookup because the stored balance record
-  // may have currency=null (from older imports), while the manual transaction has
-  // currency='EUR'. Filtering by currency would return null and reset the balance.
+  // Increment the existing balance. Fetch ALL balance records for this account so we
+  // can pick the right one regardless of whether currency is null or 'EUR'.
+  let balanceDebug: unknown[] = []
   if (tx && (status === 'processed' || !status)) {
     const parsedAmount = parseFloat(amount)
     const delta = type === 'income' ? parsedAmount : -parsedAmount
 
     const { data: records } = await supabase
       .from('admin_account_balances')
-      .select('id, balance, currency')
+      .select('id, balance, currency, user_id')
       .eq('account_id', account_id)
 
-    // Prefer a record matching the transaction currency; fall back to any record for the account
-    const existing = records?.find(r => r.currency === currency)
+    balanceDebug = records ?? []
+
+    // Priority: user's own record matching currency → user's own any record → any record
+    const existing = records?.find(r => r.user_id === user.id && r.currency === currency)
+      ?? records?.find(r => r.user_id === user.id)
+      ?? records?.find(r => r.currency === currency)
       ?? records?.find(r => !r.currency)
       ?? records?.[0]
 
     if (existing) {
       await supabase.from('admin_account_balances')
-        .update({ balance: existing.balance + delta, updated_at: new Date().toISOString() })
+        .update({ balance: existing.balance + delta, user_id: user.id, updated_at: new Date().toISOString() })
         .eq('id', existing.id)
     } else {
       await supabase.from('admin_account_balances')
@@ -88,7 +91,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ transaction: tx })
+  return NextResponse.json({ transaction: tx, _debug: { balanceRecords: balanceDebug } })
 }
 
 export async function PATCH(req: NextRequest) {
