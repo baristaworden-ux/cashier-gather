@@ -24,6 +24,67 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ transactions: data || [] })
 }
 
+export async function POST(req: NextRequest) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const body = await req.json()
+  const { account_id, date, description, amount, currency, type, category, status } = body
+  if (!account_id || !date || !description || amount === undefined || !currency || !type) {
+    return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+  }
+
+  // Unique hash for dedup (manual entries are always unique via timestamp)
+  const import_hash = `manual:${user.id}:${account_id}:${date}:${description}:${amount}:${currency}:${Date.now()}`
+
+  const { data: tx, error } = await supabase
+    .from('admin_transactions')
+    .insert({
+      user_id: user.id,
+      account_id,
+      date,
+      description: description.trim(),
+      original_description: description.trim(),
+      amount: parseFloat(amount),
+      currency,
+      type,
+      category: category?.trim() || null,
+      status: status || 'processed',
+      source: 'manual',
+      import_hash,
+      ai_categorized: false,
+    })
+    .select()
+    .single()
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Update account balance when processed
+  if (tx && (status === 'processed' || !status)) {
+    const { data: processedTxs } = await supabase
+      .from('admin_transactions')
+      .select('id, amount, type, transfer_group_id')
+      .eq('account_id', account_id)
+      .eq('currency', currency)
+      .eq('status', 'processed')
+      .eq('user_id', user.id)
+
+    if (processedTxs) {
+      const balance = processedTxs.reduce((sum, t) => {
+        if (t.type === 'income') return sum + t.amount
+        return sum - t.amount
+      }, 0)
+      await supabase.from('admin_account_balances').upsert(
+        { account_id, user_id: user.id, currency, balance, updated_at: new Date().toISOString() },
+        { onConflict: 'account_id,currency' }
+      )
+    }
+  }
+
+  return NextResponse.json({ transaction: tx })
+}
+
 export async function PATCH(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()

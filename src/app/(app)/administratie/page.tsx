@@ -95,6 +95,15 @@ function AdministratieInner() {
   const [detailCategoryOpen, setDetailCategoryOpen] = useState(false)
   const [detailCategorySearch, setDetailCategorySearch] = useState('')
 
+  // Manual transaction entry
+  const [showManualTx, setShowManualTx] = useState(false)
+  const [manualTx, setManualTx] = useState({
+    account_id: '', date: new Date().toISOString().slice(0, 10),
+    description: '', amount: '', currency: 'EUR', type: 'expense' as TransactionType, category: '', status: 'processed',
+  })
+  const [savingManualTx, setSavingManualTx] = useState(false)
+  const [manualTxError, setManualTxError] = useState<string | null>(null)
+
   // Upload
   const [uploadFiles, setUploadFiles] = useState<File[]>([])
   const [uploadFileAccounts, setUploadFileAccounts] = useState<Record<number, string>>({})
@@ -828,6 +837,24 @@ function AdministratieInner() {
 
   const draftCount = transactions.filter(t => t.status === 'draft').length
 
+  async function addManualTx() {
+    if (!manualTx.account_id || !manualTx.description.trim() || !manualTx.amount || !manualTx.currency) return
+    setSavingManualTx(true); setManualTxError(null)
+    const res = await fetch('/api/transactions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(manualTx),
+    })
+    const data = await res.json()
+    if (res.ok) {
+      setTransactions(prev => [data.transaction, ...prev])
+      setManualTx(m => ({ ...m, description: '', amount: '', category: '' }))
+      setShowManualTx(false)
+    } else {
+      setManualTxError(data.error || 'Opslaan mislukt')
+    }
+    setSavingManualTx(false)
+  }
+
   // ── Report derived ────────────────────────────────────────────────────────
   const reportTxs = transactions.filter(t =>
     t.status === 'processed' &&
@@ -1151,8 +1178,9 @@ function AdministratieInner() {
           {/* ── TRANSACTIES ── */}
           {tab === 'transacties' && (
             <div className="space-y-4">
-              {/* Draft / Processed sub-tabs */}
-              <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1 w-fit">
+              {/* Sub-tabs + manual add button */}
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1 w-fit">
                 <button
                   onClick={() => { setTxTab('draft'); setSelectedIds(new Set()) }}
                   className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
@@ -1171,6 +1199,90 @@ function AdministratieInner() {
                   Processed
                 </button>
               </div>
+                <button onClick={() => setShowManualTx(v => !v)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-xl border border-indigo-200 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition-colors">
+                  <Plus size={14} /> Handmatige transactie
+                </button>
+              </div>
+
+              {/* Manual transaction form */}
+              {showManualTx && (
+                <div className="bg-white border border-indigo-100 rounded-2xl p-4 space-y-3 shadow-sm">
+                  <p className="text-sm font-semibold text-slate-800">Transactie handmatig toevoegen</p>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Rekening</label>
+                      <select value={manualTx.account_id} onChange={e => setManualTx(m => ({ ...m, account_id: e.target.value }))}
+                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
+                        <option value="">Kies rekening…</option>
+                        {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Datum</label>
+                      <input type="date" value={manualTx.date} onChange={e => setManualTx(m => ({ ...m, date: e.target.value }))}
+                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Type</label>
+                      <select value={manualTx.type} onChange={e => setManualTx(m => ({ ...m, type: e.target.value as TransactionType }))}
+                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
+                        <option value="income">Inkomsten</option>
+                        <option value="expense">Uitgave</option>
+                        <option value="investment">Investering</option>
+                        <option value="transfer">Overboeking</option>
+                      </select>
+                    </div>
+                    <div className="col-span-2 sm:col-span-1">
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Omschrijving</label>
+                      <input type="text" placeholder="bijv. USDT aankoop" value={manualTx.description}
+                        onChange={e => setManualTx(m => ({ ...m, description: e.target.value }))}
+                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Bedrag</label>
+                      <input type="number" step="any" min="0" placeholder="0.00" value={manualTx.amount}
+                        onChange={e => setManualTx(m => ({ ...m, amount: e.target.value }))}
+                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Valuta</label>
+                      <select value={manualTx.currency} onChange={e => setManualTx(m => ({ ...m, currency: e.target.value }))}
+                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
+                        {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+                        <option value="USDT">USDT</option>
+                        <option value="BTC">BTC</option>
+                        <option value="ETH">ETH</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Categorie (optioneel)</label>
+                      <input type="text" placeholder="bijv. Crypto" value={manualTx.category}
+                        onChange={e => setManualTx(m => ({ ...m, category: e.target.value }))}
+                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Status</label>
+                      <select value={manualTx.status} onChange={e => setManualTx(m => ({ ...m, status: e.target.value }))}
+                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
+                        <option value="processed">Processed</option>
+                        <option value="draft">Draft</option>
+                      </select>
+                    </div>
+                  </div>
+                  {manualTxError && <p className="text-xs text-red-500">{manualTxError}</p>}
+                  <div className="flex gap-2 pt-1">
+                    <button onClick={addManualTx} disabled={savingManualTx || !manualTx.account_id || !manualTx.description.trim() || !manualTx.amount}
+                      className="px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors">
+                      {savingManualTx ? 'Opslaan…' : 'Toevoegen'}
+                    </button>
+                    <button onClick={() => { setShowManualTx(false); setManualTxError(null) }}
+                      className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors">
+                      Annuleren
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Filters */}
               <div className="flex gap-2 flex-wrap items-center">
