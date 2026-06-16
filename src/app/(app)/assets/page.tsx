@@ -344,6 +344,26 @@ function AssetsInner() {
     .map(cat => ({ category: cat, value: catTotals[cat], pct: portfolioTotal > 0 ? catTotals[cat] / portfolioTotal : 0 }))
     .filter(s => s.value > 0)
 
+  // Cash breakdown per currency: native units + EUR equivalent
+  const cashByCurrency = assets
+    .filter(a => a.category === 'cash')
+    .reduce((acc, a) => {
+      const cur = a.currency
+      if (!acc[cur]) acc[cur] = { units: 0, eur: 0 }
+      acc[cur].units += effectiveUnits(a)
+      acc[cur].eur += assetValue(a)
+      return acc
+    }, {} as Record<string, { units: number; eur: number }>)
+
+  function formatNative(amount: number, currency: string): string {
+    const ISO_CURRENCIES = ['EUR', 'USD', 'GBP', 'IDR', 'SGD', 'AUD', 'CHF', 'JPY']
+    if (ISO_CURRENCIES.includes(currency)) {
+      try { return new Intl.NumberFormat('nl-NL', { style: 'currency', currency, minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(amount) }
+      catch { /* fall through */ }
+    }
+    return `${amount.toLocaleString('nl-NL', { maximumFractionDigits: 2 })} ${currency}`
+  }
+
   const hasAutoPrice = (a: Asset) => !!a.price_ticker
 
   return (
@@ -394,6 +414,26 @@ function AssetsInner() {
                   <p className="text-xl font-semibold text-slate-900 mt-1">{formatCurrency(catTotals[cat], 'EUR')}</p>
                   {portfolioTotal > 0 && (
                     <p className="text-xs text-slate-400 mt-0.5">{(catTotals[cat] / portfolioTotal * 100).toFixed(1)}%</p>
+                  )}
+                  {/* Currency breakdown for cash */}
+                  {cat === 'cash' && Object.keys(cashByCurrency).length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-slate-100 space-y-1">
+                      {Object.entries(cashByCurrency)
+                        .sort(([, a], [, b]) => b.eur - a.eur)
+                        .map(([cur, { units, eur }]) => {
+                          const pct = catTotals.cash > 0 ? eur / catTotals.cash * 100 : 0
+                          return (
+                            <div key={cur} className="flex items-center justify-between gap-1">
+                              <span className="text-xs font-medium text-slate-600 shrink-0">{cur}</span>
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span className="text-xs text-slate-400 truncate">{formatNative(units, cur)}</span>
+                                <span className="text-xs text-slate-300">·</span>
+                                <span className="text-xs font-medium text-slate-500 shrink-0">{pct.toFixed(0)}%</span>
+                              </div>
+                            </div>
+                          )
+                        })}
+                    </div>
                   )}
                 </div>
               ))}
