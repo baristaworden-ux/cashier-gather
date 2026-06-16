@@ -37,9 +37,31 @@ function TickerSearch({ onSelect }: {
     timer.current = setTimeout(async () => {
       setLoading(true)
       try {
-        const res = await fetch(`/api/assets/search?q=${encodeURIComponent(v)}`)
-        const data = await res.json()
-        setResults(data.results || [])
+        // Try direct browser request first (bypasses Vercel IP block)
+        const directUrl = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(v.trim())}&quotesCount=8&newsCount=0&enableFuzzyQuery=false`
+        let results: TickerResult[] = []
+        try {
+          const res = await fetch(directUrl, { headers: { Accept: 'application/json' } })
+          if (res.ok) {
+            const data = await res.json()
+            const TYPE_MAP: Record<string, string> = { EQUITY: 'Aandeel', ETF: 'ETF', MUTUALFUND: 'Fonds', CRYPTOCURRENCY: 'Crypto', FUTURE: 'Future' }
+            results = (data.quotes ?? [])
+              .filter((q: { quoteType?: string }) => ['EQUITY', 'ETF', 'MUTUALFUND', 'CRYPTOCURRENCY', 'FUTURE'].includes(q.quoteType ?? ''))
+              .slice(0, 8)
+              .map((q: { symbol: string; shortname?: string; longname?: string; exchange?: string; quoteType?: string }) => ({
+                symbol: q.symbol,
+                name: q.shortname || q.longname || q.symbol,
+                exchange: q.exchange ?? '',
+                type: TYPE_MAP[q.quoteType ?? ''] ?? q.quoteType ?? '',
+              }))
+          }
+        } catch {
+          // CORS blocked — fall back to server route
+          const res = await fetch(`/api/assets/search?q=${encodeURIComponent(v)}`)
+          const data = await res.json()
+          results = data.results || []
+        }
+        setResults(results)
         setOpen(true)
       } catch { setResults([]) }
       setLoading(false)
