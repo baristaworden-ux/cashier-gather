@@ -822,10 +822,26 @@ function AssetsInner() {
 
                 {form.category === 'stocks' && (
                   <div className="p-3 bg-slate-50 rounded-xl space-y-2 border border-slate-100">
-                    <TickerSearch onSelect={r => {
-                      setForm(f => ({ ...f, name: f.name || r.name, symbol: r.symbol, price_ticker: r.symbol }))
-                      handleTickerChange(r.symbol)
-                    }} />
+                    <p className="text-xs font-medium text-slate-600 mb-2">Snelle selectie</p>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { name: 'FWRA', ticker: 'FWRA.MI', label: 'iShares MSCI World' },
+                        { name: 'JEDI', ticker: 'JEDI.MI', label: 'JPMorgan Global Equity' },
+                        { name: 'RBOT', ticker: 'RBOT.MI', label: 'Robo Global Robotics' },
+                        { name: 'SCHD', ticker: 'SCHD', label: 'Schwab US Dividend' },
+                        { name: 'SCHG', ticker: 'SCHG', label: 'Schwab US Large-Cap Growth' },
+                      ].map(etf => (
+                        <button key={etf.ticker} type="button"
+                          onClick={() => {
+                            setForm(f => ({ ...f, name: f.name || etf.name, symbol: etf.ticker, price_ticker: etf.ticker }))
+                            handleTickerChange(etf.ticker)
+                          }}
+                          className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${form.price_ticker === etf.ticker ? 'bg-indigo-500 text-white border-indigo-500' : 'bg-white text-indigo-700 border-indigo-200 hover:border-indigo-400'}`}>
+                          {etf.name} <span className="font-mono opacity-60">{etf.ticker}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-slate-500 pt-1">Of vul handmatig een ticker in via het veld hieronder</p>
                   </div>
                 )}
 
