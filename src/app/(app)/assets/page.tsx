@@ -164,7 +164,7 @@ function AssetsInner() {
     if (!silent) setRefreshing(false)
   }, [])
 
-  // Fetch stock/ETF prices directly from browser (Yahoo Finance blocks Vercel IPs)
+  // Fetch stock/ETF prices via edge API route (bypasses Yahoo Finance IP block)
   const refreshStockPrices = useCallback(async (stockList: Asset[]) => {
     const toFetch = stockList.filter(a => a.category === 'stocks' && a.price_ticker)
     if (toFetch.length === 0) return
@@ -172,13 +172,11 @@ function AssetsInner() {
     const updates: { id: string; price: number }[] = []
     await Promise.all(toFetch.map(async a => {
       try {
-        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(a.price_ticker!)}?interval=1d&range=1d`
-        const res = await fetch(url)
+        const res = await fetch(`/api/assets/stock-price?ticker=${encodeURIComponent(a.price_ticker!)}`)
         if (!res.ok) return
         const data = await res.json()
-        const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice
-        if (typeof price === 'number') updates.push({ id: a.id, price })
-      } catch { /* CORS / network blocked — skip */ }
+        if (typeof data.price === 'number') updates.push({ id: a.id, price: data.price })
+      } catch { /* skip on error */ }
     }))
 
     if (updates.length === 0) return
@@ -202,23 +200,16 @@ function AssetsInner() {
     tickerLookupTimer.current = setTimeout(async () => {
       setLookingUpPrice(true)
       try {
-        // Stocks/ETFs: fetch directly from browser (Yahoo Finance blocks Vercel IPs)
+        // Stocks/ETFs: via edge API route (Cloudflare IPs not blocked by Yahoo Finance)
         if (cat === 'stocks') {
-          try {
-            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker.trim())}?interval=1d&range=1d`
-            const res = await fetch(url)
-            if (res.ok) {
-              const data = await res.json()
-              const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice
-              if (typeof price === 'number') {
-                setForm(f => ({ ...f, current_price: String(price) }))
-                setLookupError(null)
-                setLookingUpPrice(false)
-                return
-              }
-            }
-          } catch { /* CORS blocked — will fall through to manual entry message */ }
-          setLookupError('Vul prijs handmatig in')
+          const res = await fetch(`/api/assets/stock-price?ticker=${encodeURIComponent(ticker.trim())}`)
+          const data = await res.json()
+          if (res.ok && typeof data.price === 'number') {
+            setForm(f => ({ ...f, current_price: String(data.price) }))
+            setLookupError(null)
+          } else {
+            setLookupError('Vul prijs handmatig in')
+          }
           setLookingUpPrice(false)
           return
         }
