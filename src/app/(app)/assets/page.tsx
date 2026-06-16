@@ -449,23 +449,53 @@ function AssetsInner() {
             </div>
 
             {/* Chart + invested */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="bg-white border border-slate-200 rounded-2xl p-6 flex flex-col items-center gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+              <div className="bg-white border border-slate-200 rounded-2xl p-6 flex flex-col items-center gap-4 lg:col-span-2">
                 <p className="text-sm font-semibold text-slate-700 self-start">Verdeling</p>
-                {chartSegments.length > 0 ? (<>
-                  <div className="w-40 h-40"><DonutChart segments={chartSegments} /></div>
-                  <div className="w-full space-y-2">
-                    {chartSegments.map(seg => (
-                      <div key={seg.category} className="flex items-center justify-between text-sm">
-                        <div className="flex items-center gap-2">
-                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: CHART_COLORS[seg.category] }} />
-                          <span className="text-slate-600">{CATEGORY_LABELS[seg.category]}</span>
-                        </div>
-                        <span className="font-medium text-slate-800">{(seg.pct * 100).toFixed(1)}%</span>
-                      </div>
-                    ))}
+                {chartSegments.length > 0 ? (
+                  <div className="w-full flex flex-col lg:flex-row items-center gap-6">
+                    <div className="w-40 h-40 shrink-0"><DonutChart segments={chartSegments} /></div>
+                    <div className="w-full space-y-1">
+                      {chartSegments.map(seg => {
+                        const catAssets = assets
+                          .filter(a => a.category === seg.category)
+                          .map(a => ({ ...a, val: assetValue(a) }))
+                          .sort((a, b) => b.val - a.val)
+                        return (
+                          <div key={seg.category}>
+                            {/* Category row */}
+                            <div className="flex items-center justify-between py-1.5">
+                              <div className="flex items-center gap-2">
+                                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: CHART_COLORS[seg.category] }} />
+                                <span className="text-sm font-semibold text-slate-800">{CATEGORY_LABELS[seg.category]}</span>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="text-xs text-slate-400">{formatCurrency(seg.value, 'EUR')}</span>
+                                <span className="text-sm font-semibold text-slate-800 w-12 text-right">{(seg.pct * 100).toFixed(1)}%</span>
+                              </div>
+                            </div>
+                            {/* Per-asset rows */}
+                            {catAssets.map(a => {
+                              const pct = portfolioTotal > 0 ? a.val / portfolioTotal * 100 : 0
+                              return (
+                                <div key={a.id} className="flex items-center justify-between pl-5 py-0.5">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs shrink-0" style={{ color: CHART_COLORS[seg.category] }}>↳</span>
+                                    <span className="text-xs text-slate-500">{a.name}</span>
+                                  </div>
+                                  <div className="flex items-center gap-3">
+                                    <span className="text-xs text-slate-400">{formatCurrency(a.val, 'EUR')}</span>
+                                    <span className="text-xs text-slate-500 w-12 text-right">{pct.toFixed(1)}%</span>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )
+                      })}
+                    </div>
                   </div>
-                </>) : (
+                ) : (
                   <p className="text-sm text-slate-400">Nog geen assets</p>
                 )}
               </div>
