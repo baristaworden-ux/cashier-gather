@@ -60,28 +60,44 @@ export async function POST(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Update account balance: increment the existing stored balance by the delta.
-  // Recalculating from scratch would conflict with how existing balances were built
-  // (e.g. inbound transfers stored as positive may not be re-detectable reliably).
+  // Use the same balance-update logic as the process route by delegating to it.
+  // The process route handles inbound/outbound transfers, opening balances, etc. correctly.
   if (tx && (status === 'processed' || !status)) {
-    const parsedAmount = parseFloat(amount)
-    // income adds to balance; everything else (expense, investment, etc.) subtracts
-    const delta = type === 'income' ? parsedAmount : -parsedAmount
-
-    const { data: existing } = await supabase
-      .from('admin_account_balances')
-      .select('balance')
+    // Transaction was inserted as 'draft' above; now mark it processed via the process route logic inline.
+    // We re-use the exact same recalculation from process/route.ts:
+    const { data: processedTxs } = await supabase
+      .from('admin_transactions')
+      .select('id, amount, type, transfer_group_id')
       .eq('account_id', account_id)
       .eq('currency', currency)
-      .eq('user_id', user.id)
-      .single()
+      .eq('status', 'processed')
 
-    const newBalance = (existing?.balance ?? 0) + delta
+    if (processedTxs) {
+      const transferGroupIds = processedTxs
+        .filter((t: { type: string; transfer_group_id: string | null }) => t.type === 'transfer' && t.transfer_group_id)
+        .map((t: { transfer_group_id: string | null }) => t.transfer_group_id as string)
 
-    await supabase.from('admin_account_balances').upsert(
-      { account_id, user_id: user.id, currency, balance: newBalance, updated_at: new Date().toISOString() },
-      { onConflict: 'account_id,currency' }
-    )
+      let inboundTransferIds = new Set<string>()
+      if (transferGroupIds.length > 0) {
+        const { data: siblings } = await supabase
+          .from('admin_transactions')
+          .select('transfer_group_id, account_id')
+          .in('transfer_group_id', transferGroupIds)
+          .neq('account_id', account_id)
+        if (siblings) inboundTransferIds = new Set(siblings.map((s: { transfer_group_id: string }) => s.transfer_group_id))
+      }
+
+      const balance = processedTxs.reduce((sum: number, t: { amount: number; type: string; transfer_group_id: string | null }) => {
+        if (t.type === 'income') return sum + t.amount
+        if (t.type === 'transfer' && t.transfer_group_id && inboundTransferIds.has(t.transfer_group_id)) return sum + t.amount
+        return sum - t.amount
+      }, 0)
+
+      await supabase.from('admin_account_balances').upsert(
+        { account_id, user_id: user.id, currency, balance, updated_at: new Date().toISOString() },
+        { onConflict: 'account_id,currency' }
+      )
+    }
   }
 
   return NextResponse.json({ transaction: tx })
