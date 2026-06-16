@@ -1,35 +1,14 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
-// ECB reference rates for gold (XAU) and silver (XAG) — always accessible from servers
-const ECB_METALS: Record<string, string> = {
-  'GC=F': 'XAU',
-  'SI=F': 'XAG',
+// pax-gold on CoinGecko: 1 PAXG = 1 troy oz gold, tracks XAU spot price exactly
+const METALS_COINGECKO: Record<string, string> = {
+  'GC=F': 'pax-gold',
 }
 
-let ecbXmlCache: { xml: string; ts: number } | null = null
-
-async function fetchECBPrice(metalCode: string): Promise<number | null> {
-  try {
-    // Cache the XML for 1 hour to avoid hammering ECB
-    if (!ecbXmlCache || Date.now() - ecbXmlCache.ts > 3_600_000) {
-      const res = await fetch('https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml', {
-        headers: { Accept: 'application/xml, text/xml, */*' }, cache: 'no-store',
-      })
-      if (!res.ok) return null
-      ecbXmlCache = { xml: await res.text(), ts: Date.now() }
-    }
-    const match = ecbXmlCache.xml.match(new RegExp(`<Cube currency="${metalCode}" rate="([^"]+)"`))
-    if (!match) return null
-    const rate = parseFloat(match[1])
-    return isNaN(rate) || rate <= 0 ? null : Math.round((1 / rate) * 100) / 100
-  } catch { return null }
-}
-
-async function fetchCoinGeckoPrices(tickers: string[], currencies: string[]): Promise<Record<string, Record<string, number>>> {
-  const ids = tickers.join(',')
+async function fetchCoinGeckoPrices(ids: string[], currencies: string[]): Promise<Record<string, Record<string, number>>> {
   const vs = Array.from(new Set(currencies.map(c => c.toLowerCase()))).join(',')
-  const res = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=${vs}`, {
+  const res = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(',')}&vs_currencies=${vs}`, {
     headers: { Accept: 'application/json' }, cache: 'no-store',
   })
   if (!res.ok) throw new Error(`CoinGecko ${res.status}`)
@@ -59,23 +38,24 @@ export async function POST() {
   const cryptoAssets = assets.filter(a => a.category === 'crypto')
   const metalsAssets = assets.filter(a => a.category === 'metals')
 
-  // ── Crypto via CoinGecko ──
-  if (cryptoAssets.length > 0) {
+  // ── Crypto + metals both via CoinGecko ──
+  const cgAssets = [
+    ...cryptoAssets.map(a => ({ ...a, cgId: a.price_ticker! })),
+    ...metalsAssets
+      .map(a => ({ ...a, cgId: METALS_COINGECKO[a.price_ticker!.toUpperCase()] }))
+      .filter(a => a.cgId),
+  ]
+
+  if (cgAssets.length > 0) {
     try {
-      const data = await fetchCoinGeckoPrices(cryptoAssets.map(a => a.price_ticker!), cryptoAssets.map(a => a.currency))
-      for (const a of cryptoAssets) {
-        const price = data[a.price_ticker!.toLowerCase()]?.[a.currency.toLowerCase()]
+      const ids = cgAssets.map(a => a.cgId)
+      const currencies = cgAssets.map(a => a.currency)
+      const data = await fetchCoinGeckoPrices(ids, currencies)
+      for (const a of cgAssets) {
+        const price = data[a.cgId]?.[a.currency.toLowerCase()]
         if (price !== undefined) priceMap[a.id] = price
       }
     } catch (e) { console.error('CoinGecko error:', e) }
-  }
-
-  // ── Metals via ECB (XAU/XAG) ──
-  for (const a of metalsAssets) {
-    const ecbCode = ECB_METALS[a.price_ticker!.toUpperCase()]
-    if (!ecbCode) continue
-    const price = await fetchECBPrice(ecbCode)
-    if (price !== null) priceMap[a.id] = Math.round(price * 100) / 100
   }
 
   // ── Update DB ──
