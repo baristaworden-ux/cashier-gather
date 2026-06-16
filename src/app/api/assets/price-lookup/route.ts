@@ -1,40 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-// Stooq ticker mapping for metals (returns USD futures price)
-const METALS_MAP: Record<string, string> = {
-  'GC=F': 'gc.f',  // Gold
-  'SI=F': 'si.f',  // Silver
-  'PL=F': 'pl.f',  // Platinum
-  'PA=F': 'pa.f',  // Palladium
+// ECB publishes XAU and XAG reference rates (EUR per troy oz)
+const ECB_METALS: Record<string, string> = {
+  'GC=F': 'XAU',  // Gold
+  'SI=F': 'XAG',  // Silver
 }
 
-async function fetchStooqPrice(ticker: string): Promise<number | null> {
-  const sym = METALS_MAP[ticker.toUpperCase()] ?? ticker.replace('=F', '.f').toLowerCase()
-  const url = `https://stooq.com/q/l/?s=${sym}&f=sd2t2ohlcv&h&e=csv`
+async function fetchECBPrice(metalCode: string): Promise<number | null> {
+  const url = `https://data-api.ecb.europa.eu/service/data/EXR/D.${metalCode}.EUR.SP00.A?lastNObservations=1&format=jsondata`
   try {
-    const res = await fetch(url, { cache: 'no-store' })
+    const res = await fetch(url, { headers: { Accept: 'application/json' }, cache: 'no-store' })
     if (!res.ok) return null
-    const text = await res.text()
-    const lines = text.trim().split('\n')
-    if (lines.length < 2) return null
-    const cols = lines[1].split(',')
-    const close = parseFloat(cols[6])
-    return isNaN(close) || close <= 0 ? null : close
+    const data = await res.json()
+    const series = Object.values(data?.dataSets?.[0]?.series ?? {})[0] as { observations: Record<string, number[]> } | undefined
+    const obs = series?.observations
+    if (!obs) return null
+    const lastKey = Object.keys(obs).sort((a, b) => Number(b) - Number(a))[0]
+    const val = obs[lastKey]?.[0]
+    if (typeof val !== 'number' || val <= 0) return null
+    // ECB can return EUR/oz (>100) or oz/EUR (<0.01) depending on convention — normalise
+    return val > 1 ? val : 1 / val
   } catch { return null }
 }
 
-async function convertToEur(usdPrice: number): Promise<number> {
-  try {
-    const res = await fetch('https://api.frankfurter.app/latest?from=USD&to=EUR', { next: { revalidate: 3600 } })
-    if (!res.ok) return usdPrice * 0.92
-    const data = await res.json()
-    const rate: number = data?.rates?.EUR ?? 0.92
-    return usdPrice * rate
-  } catch { return usdPrice * 0.92 }
-}
-
 async function fetchCoinGeckoPrice(ticker: string, currency: string): Promise<number | null> {
-  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(ticker)}&vs_currencies=${currency}`
+  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(ticker)}&vs_currencies=${currency.toLowerCase()}`
   try {
     const res = await fetch(url, { headers: { Accept: 'application/json' }, cache: 'no-store' })
     if (!res.ok) return null
@@ -52,28 +42,26 @@ export async function GET(req: NextRequest) {
   if (!ticker) return NextResponse.json({ error: 'Missing ticker' }, { status: 400 })
 
   try {
+    // ── Crypto: CoinGecko ──
     if (category === 'crypto') {
-      const price = await fetchCoinGeckoPrice(ticker, currency.toLowerCase())
+      const price = await fetchCoinGeckoPrice(ticker, currency)
       if (price === null) return NextResponse.json({ error: 'Ticker niet gevonden' }, { status: 404 })
       return NextResponse.json({ price })
     }
 
+    // ── Metals: ECB reference rates (XAU/XAG) ──
     if (category === 'metals') {
-      const usdPrice = await fetchStooqPrice(ticker)
-      if (usdPrice === null) return NextResponse.json({ error: 'Prijs niet beschikbaar' }, { status: 404 })
-      const price = currency === 'EUR' ? await convertToEur(usdPrice) : usdPrice
-      return NextResponse.json({ price: Math.round(price * 100) / 100 })
+      const ecbCode = ECB_METALS[ticker.toUpperCase()]
+      if (ecbCode) {
+        const price = await fetchECBPrice(ecbCode)
+        if (price !== null) return NextResponse.json({ price: Math.round(price * 100) / 100 })
+      }
+      return NextResponse.json({ error: 'Prijs niet beschikbaar' }, { status: 404 })
     }
 
-    // Stocks: try Stooq first (add .us for US stocks if no exchange suffix)
-    const sym = ticker.includes('.') ? ticker.toLowerCase() : `${ticker.toLowerCase()}.us`
-    const usdPrice = await fetchStooqPrice(sym)
-    if (usdPrice !== null) {
-      const price = currency === 'EUR' ? await convertToEur(usdPrice) : usdPrice
-      return NextResponse.json({ price: Math.round(price * 100) / 100 })
-    }
+    // ── Stocks: no reliable free server-side source yet ──
+    return NextResponse.json({ error: 'Vul prijs handmatig in' }, { status: 404 })
 
-    return NextResponse.json({ error: 'Ticker niet gevonden' }, { status: 404 })
   } catch {
     return NextResponse.json({ error: 'Verbindingsfout' }, { status: 502 })
   }

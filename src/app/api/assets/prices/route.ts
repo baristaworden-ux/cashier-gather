@@ -1,8 +1,26 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
-const METALS_MAP: Record<string, string> = {
-  'GC=F': 'gc.f', 'SI=F': 'si.f', 'PL=F': 'pl.f', 'PA=F': 'pa.f',
+// ECB reference rates for gold (XAU) and silver (XAG) — always accessible from servers
+const ECB_METALS: Record<string, string> = {
+  'GC=F': 'XAU',
+  'SI=F': 'XAG',
+}
+
+async function fetchECBPrice(metalCode: string): Promise<number | null> {
+  const url = `https://data-api.ecb.europa.eu/service/data/EXR/D.${metalCode}.EUR.SP00.A?lastNObservations=1&format=jsondata`
+  try {
+    const res = await fetch(url, { headers: { Accept: 'application/json' }, cache: 'no-store' })
+    if (!res.ok) return null
+    const data = await res.json()
+    const series = Object.values(data?.dataSets?.[0]?.series ?? {})[0] as { observations: Record<string, number[]> } | undefined
+    const obs = series?.observations
+    if (!obs) return null
+    const lastKey = Object.keys(obs).sort((a, b) => Number(b) - Number(a))[0]
+    const val = obs[lastKey]?.[0]
+    if (typeof val !== 'number' || val <= 0) return null
+    return val > 1 ? val : 1 / val
+  } catch { return null }
 }
 
 async function fetchCoinGeckoPrices(tickers: string[], currencies: string[]): Promise<Record<string, Record<string, number>>> {
@@ -13,28 +31,6 @@ async function fetchCoinGeckoPrices(tickers: string[], currencies: string[]): Pr
   })
   if (!res.ok) throw new Error(`CoinGecko ${res.status}`)
   return res.json()
-}
-
-async function fetchStooqPrice(ticker: string): Promise<number | null> {
-  const sym = METALS_MAP[ticker.toUpperCase()] ?? (ticker.includes('.') ? ticker.toLowerCase() : `${ticker.toLowerCase()}.us`)
-  try {
-    const res = await fetch(`https://stooq.com/q/l/?s=${sym}&f=sd2t2ohlcv&h&e=csv`, { cache: 'no-store' })
-    if (!res.ok) return null
-    const text = await res.text()
-    const lines = text.trim().split('\n')
-    if (lines.length < 2) return null
-    const close = parseFloat(lines[1].split(',')[6])
-    return isNaN(close) || close <= 0 ? null : close
-  } catch { return null }
-}
-
-async function getUsdToEur(): Promise<number> {
-  try {
-    const res = await fetch('https://api.frankfurter.app/latest?from=USD&to=EUR', { next: { revalidate: 3600 } })
-    if (!res.ok) return 0.92
-    const data = await res.json()
-    return data?.rates?.EUR ?? 0.92
-  } catch { return 0.92 }
 }
 
 export async function POST() {
@@ -59,7 +55,6 @@ export async function POST() {
 
   const cryptoAssets = assets.filter(a => a.category === 'crypto')
   const metalsAssets = assets.filter(a => a.category === 'metals')
-  const stockAssets  = assets.filter(a => a.category === 'stocks')
 
   // ── Crypto via CoinGecko ──
   if (cryptoAssets.length > 0) {
@@ -72,26 +67,12 @@ export async function POST() {
     } catch (e) { console.error('CoinGecko error:', e) }
   }
 
-  // ── Metals via Stooq + USD→EUR conversion ──
-  if (metalsAssets.length > 0) {
-    const usdToEur = await getUsdToEur()
-    await Promise.all(metalsAssets.map(async a => {
-      const usd = await fetchStooqPrice(a.price_ticker!)
-      if (usd !== null) {
-        priceMap[a.id] = a.currency === 'EUR' ? Math.round(usd * usdToEur * 100) / 100 : usd
-      }
-    }))
-  }
-
-  // ── Stocks via Stooq ──
-  if (stockAssets.length > 0) {
-    const usdToEur = await getUsdToEur()
-    await Promise.all(stockAssets.map(async a => {
-      const usd = await fetchStooqPrice(a.price_ticker!)
-      if (usd !== null) {
-        priceMap[a.id] = a.currency === 'EUR' ? Math.round(usd * usdToEur * 100) / 100 : usd
-      }
-    }))
+  // ── Metals via ECB (XAU/XAG) ──
+  for (const a of metalsAssets) {
+    const ecbCode = ECB_METALS[a.price_ticker!.toUpperCase()]
+    if (!ecbCode) continue
+    const price = await fetchECBPrice(ecbCode)
+    if (price !== null) priceMap[a.id] = Math.round(price * 100) / 100
   }
 
   // ── Update DB ──
