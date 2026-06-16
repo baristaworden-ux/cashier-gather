@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Update account balance when processed
+  // Update account balance when processed (same logic as process/route.ts)
   if (tx && (status === 'processed' || !status)) {
     const { data: processedTxs } = await supabase
       .from('admin_transactions')
@@ -71,10 +71,28 @@ export async function POST(req: NextRequest) {
       .eq('user_id', user.id)
 
     if (processedTxs) {
-      const balance = processedTxs.reduce((sum, t) => {
+      // Identify inbound transfers (sibling tx is on a different account → money flowing IN)
+      const transferGroupIds = processedTxs
+        .filter(t => t.type === 'transfer' && t.transfer_group_id)
+        .map(t => t.transfer_group_id as string)
+
+      let inboundTransferIds = new Set<string>()
+      if (transferGroupIds.length > 0) {
+        const { data: siblings } = await supabase
+          .from('admin_transactions')
+          .select('transfer_group_id, account_id')
+          .in('transfer_group_id', transferGroupIds)
+          .neq('account_id', account_id)
+          .eq('user_id', user.id)
+        if (siblings) inboundTransferIds = new Set(siblings.map(s => s.transfer_group_id as string))
+      }
+
+      const balance = processedTxs.reduce((sum: number, t: { amount: number; type: string; transfer_group_id: string | null }) => {
         if (t.type === 'income') return sum + t.amount
+        if (t.type === 'transfer' && t.transfer_group_id && inboundTransferIds.has(t.transfer_group_id)) return sum + t.amount
         return sum - t.amount
       }, 0)
+
       await supabase.from('admin_account_balances').upsert(
         { account_id, user_id: user.id, currency, balance, updated_at: new Date().toISOString() },
         { onConflict: 'account_id,currency' }
