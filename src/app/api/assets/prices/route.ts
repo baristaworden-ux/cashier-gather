@@ -3,7 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 
 // pax-gold on CoinGecko: 1 PAXG = 1 troy oz gold, tracks XAU spot price exactly
 const METALS_COINGECKO: Record<string, string> = {
-  'GC=F': 'pax-gold',
+  'GC=F': 'pax-gold',      // PAX Gold: 1 PAXG = 1 troy oz gold
+  'SI=F': 'kinesis-silver', // Kinesis Silver: 1 KAG = 1 troy oz silver
 }
 
 async function fetchCoinGeckoPrices(ids: string[], currencies: string[]): Promise<Record<string, Record<string, number>>> {

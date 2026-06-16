@@ -3,7 +3,8 @@ import { NextRequest, NextResponse } from 'next/server'
 // Map Yahoo Finance metal tickers to CoinGecko token IDs
 // pax-gold = PAX Gold: 1 PAXG = 1 troy oz gold, tracks spot XAU exactly
 const METALS_COINGECKO: Record<string, string> = {
-  'GC=F': 'pax-gold',
+  'GC=F': 'pax-gold',      // PAX Gold: 1 PAXG = 1 troy oz gold
+  'SI=F': 'kinesis-silver', // Kinesis Silver: 1 KAG = 1 troy oz silver
 }
 
 async function fetchCoinGeckoPrice(id: string, currency: string): Promise<number | null> {
