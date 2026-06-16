@@ -126,12 +126,16 @@ function AssetsInner() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState<Partial<typeof EMPTY_FORM>>({})
 
+  // Bank account cash balances (from administration module)
+  const [bankCashByCurrency, setBankCashByCurrency] = useState<Record<string, { native: number; eur: number }>>({})
+
   const loadData = useCallback(async () => {
     setLoading(true)
-    const [assetsRes, walletsRes, txRes] = await Promise.all([
+    const [assetsRes, walletsRes, txRes, accountsRes] = await Promise.all([
       fetch('/api/assets'),
       fetch('/api/assets/wallets'),
       fetch('/api/transactions?limit=2000'),
+      fetch('/api/accounts'),
     ])
     let loadedAssets: Asset[] = []
     if (assetsRes.ok) { const d = await assetsRes.json(); loadedAssets = d.assets || []; setAssets(loadedAssets) }
@@ -140,6 +144,38 @@ function AssetsInner() {
       const d = await txRes.json()
       const txs: { type: string; status: string; amount: number; currency: string }[] = d.transactions || []
       setInvestedTotal(txs.filter(t => t.status === 'processed' && t.type === 'investment' && t.currency === 'EUR').reduce((s, t) => s + t.amount, 0))
+    }
+    if (accountsRes.ok) {
+      const d = await accountsRes.json()
+      const allAccounts: { id: string; account_type: string }[] = d.accounts || []
+      const allBalances: { account_id: string; currency: string; balance: number }[] = d.balances || []
+      const allOpening: { account_id: string; currency: string; amount: number }[] = d.opening_balances || []
+      const regularIds = new Set(allAccounts.filter(a => a.account_type !== 'jar').map(a => a.id))
+      // Net balance per currency across all regular accounts
+      const netByCur: Record<string, number> = {}
+      for (const b of allBalances) {
+        if (!regularIds.has(b.account_id)) continue
+        const ob = allOpening.find(o => o.account_id === b.account_id && o.currency === b.currency)
+        netByCur[b.currency] = (netByCur[b.currency] || 0) + b.balance - (ob?.amount ?? 0)
+      }
+      // Fetch EUR rates for non-EUR currencies
+      const today = new Date().toISOString().slice(0, 10)
+      const rates: Record<string, number> = { EUR: 1 }
+      const FIAT = ['USD', 'GBP', 'IDR', 'SGD', 'AUD', 'CHF', 'JPY']
+      await Promise.all(
+        Object.keys(netByCur).filter(c => c !== 'EUR' && FIAT.includes(c)).map(async c => {
+          try {
+            const r = await fetch(`https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@${today}/v1/currencies/${c.toLowerCase()}.json`)
+            if (r.ok) { const data = await r.json(); const rate = data[c.toLowerCase()]?.eur; if (rate) rates[c] = rate }
+          } catch { /* use 0 if unavailable */ }
+        })
+      )
+      const breakdown: Record<string, { native: number; eur: number }> = {}
+      for (const [cur, native] of Object.entries(netByCur)) {
+        if (native <= 0) continue
+        breakdown[cur] = { native, eur: native * (rates[cur] ?? 0) }
+      }
+      setBankCashByCurrency(breakdown)
     }
     setLoading(false)
     return loadedAssets
@@ -334,8 +370,16 @@ function AssetsInner() {
     return a.unit ? `${str} ${a.unit}` : str
   }
 
+  const bankCashTotal = Object.values(bankCashByCurrency).reduce((s, v) => s + v.eur, 0)
   const catTotals = ALL_CATEGORIES.reduce((acc, cat) => {
-    acc[cat] = assets.filter(a => a.category === cat).reduce((s, a) => s + assetValue(a), 0)
+    if (cat === 'cash') {
+      // Prefer live bank account balances; fall back to manually entered cash assets
+      acc[cat] = bankCashTotal > 0
+        ? bankCashTotal
+        : assets.filter(a => a.category === cat).reduce((s, a) => s + assetValue(a), 0)
+    } else {
+      acc[cat] = assets.filter(a => a.category === cat).reduce((s, a) => s + assetValue(a), 0)
+    }
     return acc
   }, {} as Record<AssetCategory, number>)
 
@@ -344,16 +388,16 @@ function AssetsInner() {
     .map(cat => ({ category: cat, value: catTotals[cat], pct: portfolioTotal > 0 ? catTotals[cat] / portfolioTotal : 0 }))
     .filter(s => s.value > 0)
 
-  // Cash breakdown per currency: native units + EUR equivalent
-  const cashByCurrency = assets
-    .filter(a => a.category === 'cash')
-    .reduce((acc, a) => {
-      const cur = a.currency
-      if (!acc[cur]) acc[cur] = { units: 0, eur: 0 }
-      acc[cur].units += effectiveUnits(a)
-      acc[cur].eur += assetValue(a)
-      return acc
-    }, {} as Record<string, { units: number; eur: number }>)
+  // Cash breakdown: bank balances take priority over manually entered cash assets
+  const cashByCurrency: Record<string, { units: number; eur: number }> = bankCashTotal > 0
+    ? Object.fromEntries(Object.entries(bankCashByCurrency).map(([cur, { native, eur }]) => [cur, { units: native, eur }]))
+    : assets.filter(a => a.category === 'cash').reduce((acc, a) => {
+        const cur = a.currency
+        if (!acc[cur]) acc[cur] = { units: 0, eur: 0 }
+        acc[cur].units += effectiveUnits(a)
+        acc[cur].eur += assetValue(a)
+        return acc
+      }, {} as Record<string, { units: number; eur: number }>)
 
   function formatNative(amount: number, currency: string): string {
     const ISO_CURRENCIES = ['EUR', 'USD', 'GBP', 'IDR', 'SGD', 'AUD', 'CHF', 'JPY']
