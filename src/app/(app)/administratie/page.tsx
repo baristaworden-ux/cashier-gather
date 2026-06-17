@@ -105,7 +105,7 @@ function AdministratieInner() {
   const [manualTxError, setManualTxError] = useState<string | null>(null)
 
   // Investment transaction extras
-  type AssetRow = { id: string; name: string; symbol: string | null; category: string; units: number; currency: string; price_ticker: string | null }
+  type AssetRow = { id: string; name: string; symbol: string | null; category: string; units: number; current_price: number | null; currency: string; price_ticker: string | null }
   const [assetsList, setAssetsList] = useState<AssetRow[]>([])
   const [investFields, setInvestFields] = useState({ inv_category: '', asset_id: '', quantity: '', price_per_unit: '', fee: '' })
 
