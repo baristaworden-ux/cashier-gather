@@ -869,7 +869,7 @@ function AdministratieInner() {
       // 1. Save main investment transaction
       const mainRes = await fetch('/api/transactions', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...manualTx, description, amount: String(investmentCost), currency, category: selectedAsset?.category || 'Investering' }),
+        body: JSON.stringify({ ...manualTx, description, amount: String(investmentCost), currency, category: selectedAsset?.category || 'Investering', investment_asset_id: investFields.asset_id, investment_wallet_id: investFields.wallet_id || null, investment_units: qty }),
       })
       const mainData = await mainRes.json()
       if (!mainRes.ok) { setManualTxError(mainData.error || 'Opslaan mislukt'); setSavingManualTx(false); return }

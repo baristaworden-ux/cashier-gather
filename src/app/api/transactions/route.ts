@@ -30,7 +30,8 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { account_id, date, description, amount, currency, type, category, status } = body
+  const { account_id, date, description, amount, currency, type, category, status,
+          investment_asset_id, investment_wallet_id, investment_units } = body
   if (!account_id || !date || !description || amount === undefined || !currency || !type) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
@@ -54,6 +55,9 @@ export async function POST(req: NextRequest) {
       source: 'manual',
       import_hash,
       ai_categorized: false,
+      ...(investment_asset_id ? { investment_asset_id } : {}),
+      ...(investment_wallet_id ? { investment_wallet_id } : {}),
+      ...(investment_units !== undefined ? { investment_units: parseFloat(investment_units) } : {}),
     })
     .select()
     .single()
@@ -118,7 +122,7 @@ export async function DELETE(req: NextRequest) {
 
   const { data: tx } = await supabase
     .from('admin_transactions')
-    .select('id, account_id, currency, status, type, transfer_group_id')
+    .select('id, account_id, currency, status, type, transfer_group_id, investment_asset_id, investment_wallet_id, investment_units')
     .eq('id', id)
     .eq('user_id', user.id)
     .single()
@@ -132,6 +136,26 @@ export async function DELETE(req: NextRequest) {
     .eq('user_id', user.id)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Reverse asset/wallet units for investment transactions
+  if (tx.type === 'investment' && tx.investment_asset_id && tx.investment_units) {
+    const { data: currentAsset } = await supabase
+      .from('admin_assets').select('units').eq('id', tx.investment_asset_id).eq('user_id', user.id).single()
+    if (currentAsset) {
+      await supabase.from('admin_assets')
+        .update({ units: currentAsset.units - tx.investment_units })
+        .eq('id', tx.investment_asset_id).eq('user_id', user.id)
+    }
+    if (tx.investment_wallet_id) {
+      const { data: currentWallet } = await supabase
+        .from('admin_asset_wallets').select('units').eq('id', tx.investment_wallet_id).eq('user_id', user.id).single()
+      if (currentWallet) {
+        await supabase.from('admin_asset_wallets')
+          .update({ units: currentWallet.units - tx.investment_units })
+          .eq('id', tx.investment_wallet_id).eq('user_id', user.id)
+      }
+    }
+  }
 
   // Recalculate balances for ALL currencies on this account from remaining processed transactions.
   // This prevents phantom balance records from past currency mismatches staying wrong.
@@ -180,12 +204,22 @@ export async function DELETE(req: NextRequest) {
         )
       )
 
-      // Zero out the deleted transaction's currency if no remaining transactions use it
-      if (!(tx.currency in balanceByCurrency)) {
-        await supabase.from('admin_account_balances').upsert(
-          { account_id: tx.account_id, user_id: user.id, currency: tx.currency, balance: 0, updated_at: new Date().toISOString() },
-          { onConflict: 'account_id,currency' }
-        )
+      // Zero out ALL existing balance records for this account that have no remaining transactions
+      // (catches phantom records from past currency mismatches)
+      const { data: existingRecords } = await supabase
+        .from('admin_account_balances')
+        .select('id, currency')
+        .eq('account_id', tx.account_id)
+        .eq('user_id', user.id)
+
+      const phantomIds = (existingRecords || [])
+        .filter(r => !(r.currency in balanceByCurrency))
+        .map(r => r.id)
+
+      if (phantomIds.length > 0) {
+        await supabase.from('admin_account_balances')
+          .update({ balance: 0, updated_at: new Date().toISOString() })
+          .in('id', phantomIds)
       }
     }
   }
