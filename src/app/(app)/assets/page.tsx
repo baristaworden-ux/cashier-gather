@@ -314,6 +314,17 @@ function AssetsInner() {
   }
 
   // ── Wallet functions ──
+  // After any wallet change, sync admin_assets.units to the new wallet sum so the
+  // asset total stays consistent with what's displayed (effectiveUnits uses wallet sum).
+  async function syncAssetUnitsFromWallets(assetId: string, updatedWallets: typeof wallets) {
+    const sum = updatedWallets.filter(w => w.asset_id === assetId).reduce((s, w) => s + w.units, 0)
+    await fetch('/api/assets', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: assetId, units: String(sum) }),
+    })
+    setAssets(a => a.map(x => x.id === assetId ? { ...x, units: sum } : x))
+  }
+
   async function addWallet(assetId: string) {
     if (!walletForm.name.trim()) return
     setSavingWallet(true)
@@ -323,7 +334,9 @@ function AssetsInner() {
     })
     if (res.ok) {
       const { wallet } = await res.json()
-      setWallets(w => [...w, wallet])
+      const newWallets = [...wallets, wallet]
+      setWallets(newWallets)
+      await syncAssetUnitsFromWallets(assetId, newWallets)
       setWalletForm({ name: '', units: '' })
       setAddingWalletFor(null)
     }
@@ -337,14 +350,19 @@ function AssetsInner() {
     })
     if (res.ok) {
       const { wallet } = await res.json()
-      setWallets(w => w.map(x => x.id === id ? wallet : x))
+      const newWallets = wallets.map(x => x.id === id ? wallet : x)
+      setWallets(newWallets)
+      await syncAssetUnitsFromWallets(wallet.asset_id, newWallets)
     }
     setEditingWalletId(null)
   }
 
   async function deleteWallet(id: string) {
+    const wallet = wallets.find(w => w.id === id)
     await fetch(`/api/assets/wallets?id=${id}`, { method: 'DELETE' })
-    setWallets(w => w.filter(x => x.id !== id))
+    const newWallets = wallets.filter(x => x.id !== id)
+    setWallets(newWallets)
+    if (wallet) await syncAssetUnitsFromWallets(wallet.asset_id, newWallets)
   }
 
   function openEdit(asset: Asset) {

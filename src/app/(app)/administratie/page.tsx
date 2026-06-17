@@ -858,8 +858,13 @@ function AdministratieInner() {
       const fee = parseFloat(investFields.fee) || 0
       const investmentCost = totalPaid - fee
 
+      const assetHasWallets = walletsList.some(w => w.asset_id === investFields.asset_id)
       if (!manualTx.account_id || !investFields.asset_id || qty <= 0 || totalPaid <= 0) {
-        setManualTxError('Vul rekening, belegging, aantal en prijs per stuk in')
+        setManualTxError('Vul rekening, belegging, aantal en totaal betaald in')
+        setSavingManualTx(false); return
+      }
+      if (investFields.inv_category === 'crypto' && assetHasWallets && !investFields.wallet_id) {
+        setManualTxError('Selecteer een wallet — dit crypto asset heeft wallets')
         setSavingManualTx(false); return
       }
 
@@ -895,10 +900,15 @@ function AdministratieInner() {
 
       // 4. If a wallet was selected, also increment its units
       if (investFields.wallet_id) {
-        await fetch('/api/assets/wallets', {
+        const walletPatchRes = await fetch('/api/assets/wallets', {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: investFields.wallet_id, units_delta: qty }),
         })
+        if (!walletPatchRes.ok) {
+          const walletErr = await walletPatchRes.json().catch(() => ({}))
+          setManualTxError(`Transactie opgeslagen, maar wallet niet bijgewerkt: ${walletErr.error || 'onbekende fout'}`)
+          setSavingManualTx(false); return
+        }
       }
 
       setTransactions(prev => [mainData.transaction, ...prev])
@@ -1407,7 +1417,7 @@ function AdministratieInner() {
                             if (assetWallets.length === 0) return null
                             return (
                               <div>
-                                <label className="block text-xs font-medium text-slate-500 mb-1">Wallet (optioneel)</label>
+                                <label className="block text-xs font-medium text-slate-500 mb-1">Wallet <span className="text-red-400">*</span></label>
                                 <select value={investFields.wallet_id}
                                   onChange={e => setInvestFields(f => ({ ...f, wallet_id: e.target.value }))}
                                   className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
