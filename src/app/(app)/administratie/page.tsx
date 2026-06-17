@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { Account, AccountBalance, OpeningBalance, Transaction, TransactionType, Vendor, AdminCategory, Loan } from '@/types'
 import { formatCurrency, formatDate, cn, CURRENCIES } from '@/lib/utils'
-import { Upload, Sparkles, Search, ArrowUpDown, Link2, Unlink, PiggyBank, ChevronRight, X, Plus, Trash2, RotateCcw } from 'lucide-react'
+import { Upload, Sparkles, Search, ArrowUpDown, Link2, Unlink, PiggyBank, ChevronRight, X, Plus, Trash2, RotateCcw, Settings } from 'lucide-react'
 
 const BANK_LABELS: Record<string, string> = {
   rabobank: 'Rabobank', wise: 'Wise', revolut: 'Revolut',
@@ -15,7 +15,7 @@ const BANK_COLORS: Record<string, string> = {
   ocbc: 'bg-red-500', manual: 'bg-slate-400',
 }
 
-type Tab = 'overzicht' | 'transacties' | 'uploaden' | 'overboeking' | 'rapport'
+type Tab = 'overzicht' | 'transacties' | 'uploaden' | 'overboeking' | 'rapport' | 'reconcile'
 type SortKey = 'date_desc' | 'date_asc' | 'amount_desc' | 'amount_asc' | 'vendor_asc' | 'vendor_desc' | 'description_asc' | 'description_desc' | 'category_asc' | 'category_desc' | 'type_asc' | 'type_desc' | 'bank_asc' | 'bank_desc'
 type ReportSort = 'category_asc' | 'category_desc' | 'income_desc' | 'income_asc' | 'expense_desc' | 'expense_asc'
 
@@ -150,6 +150,21 @@ function AdministratieInner() {
   const [categoryTxTo, setCategoryTxTo] = useState('')
   const [reportCmpFrom, setReportCmpFrom] = useState('')
   const [reportCmpTo, setReportCmpTo] = useState('')
+
+  // Reconcile
+  type ReconcileSettings = { decided: boolean; enabled: boolean; diff_category: string }
+  type LastReconciled = Record<string, { date: string; balance: number; currency: string }>
+  const [reconcileSettings, setReconcileSettings] = useState<ReconcileSettings | null>(null)
+  const [lastReconciled, setLastReconciled] = useState<LastReconciled>({})
+  const [reconcileAccountId, setReconcileAccountId] = useState('')
+  const [reconcileCurrency, setReconcileCurrency] = useState('EUR')
+  const [reconcileDate, setReconcileDate] = useState(new Date().toISOString().slice(0, 10))
+  const [reconcileActual, setReconcileActual] = useState('')
+  const [reconcileTxs, setReconcileTxs] = useState<Transaction[] | null>(null)
+  const [reconcileTxsLoading, setReconcileTxsLoading] = useState(false)
+  const [bookingDiff, setBookingDiff] = useState(false)
+  const [showReconcileSetup, setShowReconcileSetup] = useState(false)
+  const [reconcileDiffCategoryDraft, setReconcileDiffCategoryDraft] = useState('')
 
 
   async function findAutoMatches(txList: Transaction[]): Promise<Record<string, string>> {
@@ -1066,6 +1081,91 @@ function AdministratieInner() {
     }
   }
 
+  // Load reconcile settings from localStorage
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('reconcile_v1')
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (parsed.settings) setReconcileSettings(parsed.settings)
+        if (parsed.last) setLastReconciled(parsed.last)
+        if (parsed.settings?.diff_category) setReconcileDiffCategoryDraft(parsed.settings.diff_category)
+      }
+    } catch { /* ignore */ }
+  }, [])
+
+  function saveReconcileToStorage(settings: ReconcileSettings, last: LastReconciled) {
+    localStorage.setItem('reconcile_v1', JSON.stringify({ settings, last }))
+  }
+
+  function computeExpectedBalance(accountId: string, currency: string, date: string): number {
+    const balRec = balances.find(b => b.account_id === accountId && b.currency === currency)
+    const obRec = openingBalances.find(o => o.account_id === accountId && o.currency === currency)
+    const currentTotal = (balRec?.balance ?? 0) + (obRec?.amount ?? 0)
+    // Subtract effect of processed transactions AFTER reconcile date to get balance on that date
+    const deltaAfter = transactions
+      .filter(t => t.account_id === accountId && t.currency === currency && t.status === 'processed' && t.date > date)
+      .reduce((s, t) => s + (t.type === 'income' ? t.amount : -t.amount), 0)
+    return currentTotal - deltaAfter
+  }
+
+  async function bookReconcileDiff() {
+    if (!reconcileSettings) return
+    const expected = computeExpectedBalance(reconcileAccountId, reconcileCurrency, reconcileDate)
+    const actual = parseFloat(reconcileActual)
+    if (isNaN(actual)) return
+    const diff = actual - expected
+    if (Math.abs(diff) < 0.005) return
+    setBookingDiff(true)
+    const res = await fetch('/api/transactions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        account_id: reconcileAccountId,
+        date: reconcileDate,
+        description: `Reconciliatie correctie ${reconcileDate}`,
+        amount: String(Math.abs(diff)),
+        currency: reconcileCurrency,
+        type: diff > 0 ? 'income' : 'expense',
+        category: reconcileSettings.diff_category || 'Reconciliatie',
+        status: 'processed',
+      }),
+    })
+    if (res.ok) {
+      const newLast: LastReconciled = { ...lastReconciled, [reconcileAccountId]: { date: reconcileDate, balance: actual, currency: reconcileCurrency } }
+      setLastReconciled(newLast)
+      saveReconcileToStorage(reconcileSettings, newLast)
+      setReconcileActual('')
+      setReconcileTxs(null)
+      await loadData()
+    }
+    setBookingDiff(false)
+  }
+
+  async function markReconciled() {
+    if (!reconcileSettings) return
+    const actual = parseFloat(reconcileActual)
+    if (isNaN(actual)) return
+    const newLast: LastReconciled = { ...lastReconciled, [reconcileAccountId]: { date: reconcileDate, balance: actual, currency: reconcileCurrency } }
+    setLastReconciled(newLast)
+    saveReconcileToStorage(reconcileSettings, newLast)
+    setReconcileActual('')
+    setReconcileTxs(null)
+  }
+
+  async function loadReconcileTxs() {
+    setReconcileTxsLoading(true)
+    const fromDate = lastReconciled[reconcileAccountId]?.date ?? '2000-01-01'
+    const res = await fetch(`/api/transactions?account_id=${reconcileAccountId}&limit=2000`)
+    if (res.ok) {
+      const d = await res.json()
+      const filtered = (d.transactions as Transaction[])
+        .filter(t => t.currency === reconcileCurrency && t.status === 'processed' && t.date >= fromDate && t.date <= reconcileDate)
+        .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
+      setReconcileTxs(filtered)
+    }
+    setReconcileTxsLoading(false)
+  }
+
   // Reset visible count whenever filters/tab/sort change
   useEffect(() => { setVisibleCount(200) }, [txTab, filterAccount, filterType, filterCategory, filterDateFrom, filterDateTo, sortKey, search])
 
@@ -1100,7 +1200,7 @@ function AdministratieInner() {
 
   const TAB_LABELS: Record<Tab, string> = {
     overzicht: 'Overzicht', transacties: 'Transacties', uploaden: 'Uploaden',
-    overboeking: 'Overboeking', rapport: 'Rapport',
+    overboeking: 'Overboeking', rapport: 'Rapport', reconcile: 'Reconcile',
   }
 
   const CATEGORY_COLORS: Record<string, string> = {
@@ -2620,6 +2720,297 @@ function AdministratieInner() {
           )}
         </>
       )}
+
+      {/* ── RECONCILE ── */}
+      {tab === 'reconcile' && (() => {
+        // --- Setup panel (shown when not yet decided or setup button clicked) ---
+        if (!reconcileSettings?.decided || showReconcileSetup) {
+          const isEdit = !!reconcileSettings?.decided
+          return (
+            <div className="max-w-lg space-y-4">
+              <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-5">
+                <div>
+                  <h2 className="text-base font-semibold text-slate-900">Reconciliatie {isEdit ? 'instellingen' : 'inschakelen'}</h2>
+                  <p className="text-sm text-slate-500 mt-1">
+                    Vergelijk het werkelijke banksaldo met de boekhouding en boek eventuele verschillen automatisch weg.
+                  </p>
+                </div>
+                {!isEdit && (
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => {
+                        const s: ReconcileSettings = { decided: true, enabled: true, diff_category: reconcileDiffCategoryDraft }
+                        setReconcileSettings(s)
+                        saveReconcileToStorage(s, lastReconciled)
+                        setShowReconcileSetup(false)
+                      }}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium transition-colors">
+                      Ja, inschakelen
+                    </button>
+                    <button
+                      onClick={() => {
+                        const s: ReconcileSettings = { decided: true, enabled: false, diff_category: '' }
+                        setReconcileSettings(s)
+                        saveReconcileToStorage(s, lastReconciled)
+                      }}
+                      className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-medium transition-colors">
+                      Nee, niet gebruiken
+                    </button>
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <label className="block text-xs font-medium text-slate-600">Boek verschillen naar categorie</label>
+                  <select
+                    value={reconcileDiffCategoryDraft}
+                    onChange={e => setReconcileDiffCategoryDraft(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
+                    <option value="">Kies categorie…</option>
+                    {parentCategories.map(p => {
+                      const subs = subCategories(p.id)
+                      return subs.length > 0 ? (
+                        <optgroup key={p.id} label={p.name}>
+                          <option value={p.name}>{p.name}</option>
+                          {subs.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                        </optgroup>
+                      ) : <option key={p.id} value={p.name}>{p.name}</option>
+                    })}
+                  </select>
+                  <p className="text-xs text-slate-400">Hier komt de correctieboeking naartoe als het saldo niet klopt.</p>
+                </div>
+                {isEdit && (
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      onClick={() => {
+                        const s: ReconcileSettings = { ...reconcileSettings!, diff_category: reconcileDiffCategoryDraft }
+                        setReconcileSettings(s)
+                        saveReconcileToStorage(s, lastReconciled)
+                        setShowReconcileSetup(false)
+                      }}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium transition-colors">
+                      Opslaan
+                    </button>
+                    <button onClick={() => setShowReconcileSetup(false)}
+                      className="px-4 py-2 text-slate-500 hover:text-slate-700 text-sm font-medium transition-colors">
+                      Annuleren
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        }
+
+        // --- Not enabled ---
+        if (!reconcileSettings.enabled) {
+          return (
+            <div className="max-w-lg">
+              <div className="bg-white border border-slate-200 rounded-2xl p-6 text-center space-y-3">
+                <p className="text-sm text-slate-500">Reconciliatie is uitgeschakeld.</p>
+                <button onClick={() => {
+                  const s: ReconcileSettings = { decided: true, enabled: true, diff_category: reconcileSettings.diff_category }
+                  setReconcileSettings(s)
+                  saveReconcileToStorage(s, lastReconciled)
+                }} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium transition-colors">
+                  Inschakelen
+                </button>
+              </div>
+            </div>
+          )
+        }
+
+        // --- Main reconcile UI ---
+        const recAccount = accounts.find(a => a.id === reconcileAccountId)
+        const accountCurrencies = reconcileAccountId
+          ? balances.filter(b => b.account_id === reconcileAccountId).map(b => b.currency)
+          : []
+        const expected = reconcileAccountId && reconcileDate
+          ? computeExpectedBalance(reconcileAccountId, reconcileCurrency, reconcileDate)
+          : null
+        const actual = reconcileActual !== '' ? parseFloat(reconcileActual) : null
+        const diff = expected !== null && actual !== null ? actual - expected : null
+        const noDiff = diff !== null && Math.abs(diff) < 0.005
+        const lastRec = lastReconciled[reconcileAccountId]
+
+        // Build running balance for transaction check panel
+        const runningStart = lastRec?.balance
+          ?? (openingBalances.find(o => o.account_id === reconcileAccountId && o.currency === reconcileCurrency)?.amount ?? 0)
+
+        return (
+          <div className="space-y-6 max-w-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between">
+              <div />
+              <button onClick={() => { setShowReconcileSetup(true); setReconcileDiffCategoryDraft(reconcileSettings.diff_category) }}
+                className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 transition-colors">
+                <Settings size={13} /> Instellingen
+              </button>
+            </div>
+
+            {/* Account + date selectors */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Rekening</label>
+                  <select value={reconcileAccountId}
+                    onChange={e => {
+                      setReconcileAccountId(e.target.value)
+                      setReconcileActual('')
+                      setReconcileTxs(null)
+                      const firstBal = balances.find(b => b.account_id === e.target.value)
+                      if (firstBal) setReconcileCurrency(firstBal.currency)
+                    }}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
+                    <option value="">Kies rekening…</option>
+                    {regularAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
+                </div>
+                {accountCurrencies.length > 1 && (
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Valuta</label>
+                    <select value={reconcileCurrency} onChange={e => { setReconcileCurrency(e.target.value); setReconcileActual(''); setReconcileTxs(null) }}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
+                      {accountCurrencies.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                )}
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Peildatum</label>
+                  <input type="date" value={reconcileDate}
+                    onChange={e => { setReconcileDate(e.target.value); setReconcileActual(''); setReconcileTxs(null) }}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+                </div>
+              </div>
+
+              {reconcileAccountId && (
+                <>
+                  <div className="border-t border-slate-100 pt-4 space-y-3">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-slate-500">Saldo in systeem op {formatDate(reconcileDate)}</span>
+                      <span className="font-semibold tabular-nums">{expected !== null ? formatCurrency(expected, reconcileCurrency) : '—'}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <label className="text-sm text-slate-500 shrink-0">Werkelijk saldo</label>
+                      <input
+                        type="number" step="any" placeholder="0.00"
+                        value={reconcileActual}
+                        onChange={e => { setReconcileActual(e.target.value); setReconcileTxs(null) }}
+                        className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 tabular-nums"
+                      />
+                    </div>
+                    {diff !== null && (
+                      <div className={cn('flex items-center justify-between rounded-xl px-4 py-3',
+                        noDiff ? 'bg-emerald-50 border border-emerald-200' : 'bg-red-50 border border-red-200')}>
+                        <span className={cn('text-sm font-medium', noDiff ? 'text-emerald-700' : 'text-red-700')}>
+                          {noDiff ? '✓ Geen verschil' : 'Verschil'}
+                        </span>
+                        <span className={cn('text-base font-bold tabular-nums', noDiff ? 'text-emerald-700' : 'text-red-700')}>
+                          {noDiff ? formatCurrency(0, reconcileCurrency) : `${diff > 0 ? '+' : ''}${formatCurrency(diff, reconcileCurrency)}`}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Action buttons */}
+                  {diff !== null && (
+                    <div className="flex gap-2 flex-wrap pt-1">
+                      {noDiff ? (
+                        <button onClick={markReconciled}
+                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-medium transition-colors">
+                          Markeer als gereconcilieerd
+                        </button>
+                      ) : (
+                        <>
+                          <button onClick={bookReconcileDiff} disabled={bookingDiff}
+                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium transition-colors disabled:opacity-50">
+                            {bookingDiff ? 'Boeken…' : `Boek ${formatCurrency(Math.abs(diff), reconcileCurrency)} weg`}
+                          </button>
+                          <button onClick={() => { setReconcileTxs(null); loadReconcileTxs() }} disabled={reconcileTxsLoading}
+                            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-medium transition-colors disabled:opacity-50">
+                            {reconcileTxsLoading ? 'Laden…' : 'Controleer transacties'}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Last reconciled badge */}
+                  {lastRec && (
+                    <p className="text-xs text-slate-400">
+                      Laatste reconciliatie: {formatDate(lastRec.date)} · {formatCurrency(lastRec.balance, lastRec.currency)}
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Transaction check panel */}
+            {reconcileTxs !== null && (() => {
+              const fromDate = lastRec?.date ?? '2000-01-01'
+              let runningBal = runningStart
+              return (
+                <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+                  <div className="px-5 py-4 border-b border-slate-100 bg-slate-50">
+                    <p className="text-sm font-semibold text-slate-800">
+                      Transacties {formatDate(fromDate)} → {formatDate(reconcileDate)}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-0.5">{recAccount?.name} · {reconcileCurrency} · {reconcileTxs.length} transacties</p>
+                  </div>
+                  {reconcileTxs.length === 0 ? (
+                    <p className="text-sm text-slate-400 italic text-center py-8">Geen transacties gevonden in deze periode.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-slate-100 text-left">
+                            <th className="px-4 py-2.5 font-semibold text-slate-500">Datum</th>
+                            <th className="px-4 py-2.5 font-semibold text-slate-500">Omschrijving</th>
+                            <th className="px-4 py-2.5 font-semibold text-slate-500 text-right">Bedrag</th>
+                            <th className="px-4 py-2.5 font-semibold text-slate-500 text-right">Saldo na</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr className="border-b border-slate-50 bg-slate-50/60">
+                            <td className="px-4 py-2 text-slate-400" colSpan={3}>{lastRec ? `Openingssaldo (${formatDate(fromDate)})` : 'Openingssaldo'}</td>
+                            <td className="px-4 py-2 text-right font-semibold tabular-nums text-slate-600">{formatCurrency(runningStart, reconcileCurrency)}</td>
+                          </tr>
+                          {reconcileTxs.map((t, i) => {
+                            const delta = t.type === 'income' ? t.amount : -t.amount
+                            runningBal += delta
+                            const isLast = i === reconcileTxs!.length - 1
+                            return (
+                              <tr key={t.id} className={cn('border-b border-slate-50 hover:bg-slate-50', isLast && 'border-b-0')}>
+                                <td className="px-4 py-2 text-slate-500 whitespace-nowrap">{formatDate(t.date)}</td>
+                                <td className="px-4 py-2 text-slate-700 max-w-xs truncate">{t.description}</td>
+                                <td className={cn('px-4 py-2 text-right font-medium tabular-nums whitespace-nowrap',
+                                  delta >= 0 ? 'text-emerald-600' : 'text-red-500')}>
+                                  {delta >= 0 ? '+' : ''}{formatCurrency(delta, reconcileCurrency)}
+                                </td>
+                                <td className="px-4 py-2 text-right tabular-nums font-semibold text-slate-700 whitespace-nowrap">
+                                  {formatCurrency(runningBal, reconcileCurrency)}
+                                </td>
+                              </tr>
+                            )
+                          })}
+                          <tr className="border-t-2 border-slate-200 bg-slate-50">
+                            <td className="px-4 py-3 font-semibold text-slate-700" colSpan={3}>Eindtotaal</td>
+                            <td className={cn('px-4 py-3 text-right font-bold tabular-nums',
+                              actual !== null && Math.abs(runningBal - actual) < 0.005 ? 'text-emerald-700' : 'text-slate-700')}>
+                              {formatCurrency(runningBal, reconcileCurrency)}
+                              {actual !== null && Math.abs(runningBal - actual) >= 0.005 && (
+                                <span className="block text-xs font-normal text-red-500">werkelijk: {formatCurrency(actual, reconcileCurrency)}</span>
+                              )}
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+          </div>
+        )
+      })()}
 
       {/* ── CATEGORY TRANSACTIONS PANEL ── */}
       {categoryTxPanel && (() => {

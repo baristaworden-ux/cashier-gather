@@ -5,7 +5,7 @@ import { usePathname, useSearchParams, useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
   LayoutGrid, Calculator, LogOut, Settings,
-  Home, List, Upload, ArrowLeftRight, BarChart2, TrendingUp,
+  Home, List, Upload, ArrowLeftRight, BarChart2, TrendingUp, Scale,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
@@ -20,6 +20,7 @@ const adminSubItems = [
   { tab: 'uploaden',     label: 'Uploaden',     icon: Upload,         href: '/administratie?tab=uploaden' },
   { tab: 'overboeking',  label: 'Overboeking',  icon: ArrowLeftRight, href: '/administratie?tab=overboeking' },
   { tab: 'rapport',      label: 'Rapport',      icon: BarChart2,      href: '/administratie?tab=rapport' },
+  { tab: 'reconcile',   label: 'Reconcile',    icon: Scale,          href: '/administratie?tab=reconcile' },
   { tab: 'instellingen', label: 'Instellingen', icon: Settings,       href: '/settings' },
 ]
 
