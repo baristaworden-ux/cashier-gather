@@ -105,7 +105,7 @@ function AdministratieInner() {
   const [manualTxError, setManualTxError] = useState<string | null>(null)
 
   // Investment transaction extras
-  type AssetRow = { id: string; name: string; symbol: string | null; category: string; units: number; current_price: number | null; currency: string; price_ticker: string | null }
+  type AssetRow = { id: string; name: string; symbol: string | null; category: string; units: number; current_price: number | null; currency: string; price_ticker: string | null; unit: string | null }
   type WalletRow = { id: string; asset_id: string; name: string; units: number }
   const [assetsList, setAssetsList] = useState<AssetRow[]>([])
   const [walletsList, setWalletsList] = useState<WalletRow[]>([])
@@ -613,6 +613,8 @@ function AdministratieInner() {
 
   async function bulkDelete() {
     const ids = Array.from(selectedIds)
+    const hasInvestment = transactions.some(t => ids.includes(t.id) && t.type === 'investment')
+    if (hasInvestment && !window.confirm('De selectie bevat investeringstransacties. Verwijderen trekt ook de beleggingseenheden terug. Doorgaan?')) return
     const results = await Promise.all(ids.map(id => fetch(`/api/transactions?id=${id}`, { method: 'DELETE' }).then(r => ({ id, ok: r.ok }))))
     const deleted = new Set(results.filter(r => r.ok).map(r => r.id))
     setTransactions(txs => txs.filter(t => !deleted.has(t.id)))
@@ -1353,10 +1355,14 @@ function AdministratieInner() {
                       <label className="block text-xs font-medium text-slate-500 mb-1">Valuta</label>
                       <select value={manualTx.currency} onChange={e => setManualTx(m => ({ ...m, currency: e.target.value }))}
                         className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
-                        {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
-                        <option value="USDT">USDT</option>
-                        <option value="BTC">BTC</option>
-                        <option value="ETH">ETH</option>
+                        <optgroup label="Fiat">
+                          {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+                        </optgroup>
+                        <optgroup label="Crypto">
+                          <option value="USDT">USDT</option>
+                          <option value="BTC">BTC</option>
+                          <option value="ETH">ETH</option>
+                        </optgroup>
                       </select>
                     </div>
                     {manualTx.type !== 'investment' && (
@@ -1803,7 +1809,10 @@ function AdministratieInner() {
                                           <Plus size={11} />Add
                                         </button>
                                         <button
-                                          onClick={() => deleteTransaction(tx)}
+                                          onClick={() => {
+                                            if (tx.type === 'investment' && !window.confirm(`Verwijder "${tx.description}"? Dit trekt ook de beleggingseenheden terug.`)) return
+                                            deleteTransaction(tx)
+                                          }}
                                           className="p-1 text-slate-300 hover:text-red-400 hover:bg-red-50 rounded-lg transition-colors"
                                           title="Verwijderen"
                                         >

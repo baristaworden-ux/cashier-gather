@@ -101,7 +101,7 @@ function AssetsInner() {
 
   const [assets, setAssets] = useState<Asset[]>([])
   const [wallets, setWallets] = useState<Wallet[]>([])
-  const [investedTotal, setInvestedTotal] = useState(0)
+  const [investedByCurrency, setInvestedByCurrency] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null)
@@ -143,7 +143,13 @@ function AssetsInner() {
     if (txRes.ok) {
       const d = await txRes.json()
       const txs: { type: string; status: string; amount: number; currency: string }[] = d.transactions || []
-      setInvestedTotal(txs.filter(t => t.status === 'processed' && t.type === 'investment' && t.currency === 'EUR').reduce((s, t) => s + t.amount, 0))
+      const byCur: Record<string, number> = {}
+      for (const t of txs) {
+        if (t.status === 'processed' && t.type === 'investment') {
+          byCur[t.currency] = (byCur[t.currency] || 0) + t.amount
+        }
+      }
+      setInvestedByCurrency(byCur)
     }
     if (accountsRes.ok) {
       const d = await accountsRes.json()
@@ -359,7 +365,8 @@ function AssetsInner() {
 
   async function deleteWallet(id: string) {
     const wallet = wallets.find(w => w.id === id)
-    await fetch(`/api/assets/wallets?id=${id}`, { method: 'DELETE' })
+    const res = await fetch(`/api/assets/wallets?id=${id}`, { method: 'DELETE' })
+    if (!res.ok) return
     const newWallets = wallets.filter(x => x.id !== id)
     setWallets(newWallets)
     if (wallet) await syncAssetUnitsFromWallets(wallet.asset_id, newWallets)
@@ -559,9 +566,19 @@ function AssetsInner() {
                   <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center shrink-0">
                     <TrendingUp size={18} className="text-indigo-600" />
                   </div>
-                  <div>
-                    <p className="text-2xl font-semibold text-slate-900">{formatCurrency(investedTotal, 'EUR')}</p>
-                    <p className="text-xs text-slate-400 mt-0.5">Verwerkte investment-transacties (EUR)</p>
+                  <div className="min-w-0">
+                    {Object.keys(investedByCurrency).length === 0 ? (
+                      <p className="text-2xl font-semibold text-slate-900">—</p>
+                    ) : (
+                      Object.entries(investedByCurrency)
+                        .sort(([a], [b]) => a.localeCompare(b))
+                        .map(([cur, amt]) => (
+                          <p key={cur} className="text-xl font-semibold text-slate-900">
+                            {amt.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {cur}
+                          </p>
+                        ))
+                    )}
+                    <p className="text-xs text-slate-400 mt-0.5">Verwerkte investment-transacties</p>
                   </div>
                 </div>
               </div>
