@@ -879,10 +879,15 @@ function AdministratieInner() {
       }
 
       // 3. Add quantity to asset
-      await fetch('/api/assets', {
+      const assetPatchRes = await fetch('/api/assets', {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: investFields.asset_id, units_delta: qty }),
       })
+      if (!assetPatchRes.ok) {
+        const assetErr = await assetPatchRes.json().catch(() => ({}))
+        setManualTxError(`Transactie opgeslagen, maar assets niet bijgewerkt: ${assetErr.error || 'onbekende fout'}`)
+        setSavingManualTx(false); return
+      }
 
       setTransactions(prev => [mainData.transaction, ...prev])
       setInvestFields({ inv_category: '', asset_id: '', quantity: '', total_paid: '', fee: '' })
@@ -1274,7 +1279,10 @@ function AdministratieInner() {
                   <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                     <div>
                       <label className="block text-xs font-medium text-slate-500 mb-1">Rekening</label>
-                      <select value={manualTx.account_id} onChange={e => setManualTx(m => ({ ...m, account_id: e.target.value }))}
+                      <select value={manualTx.account_id} onChange={e => {
+                          const acc = accounts.find(a => a.id === e.target.value)
+                          setManualTx(m => ({ ...m, account_id: e.target.value, ...(acc?.currency ? { currency: acc.currency } : {}) }))
+                        }}
                         className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
                         <option value="">Kies rekening…</option>
                         {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
