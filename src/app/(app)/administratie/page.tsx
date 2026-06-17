@@ -106,8 +106,10 @@ function AdministratieInner() {
 
   // Investment transaction extras
   type AssetRow = { id: string; name: string; symbol: string | null; category: string; units: number; current_price: number | null; currency: string; price_ticker: string | null }
+  type WalletRow = { id: string; asset_id: string; name: string; units: number }
   const [assetsList, setAssetsList] = useState<AssetRow[]>([])
-  const [investFields, setInvestFields] = useState({ inv_category: '', asset_id: '', quantity: '', total_paid: '', fee: '' })
+  const [walletsList, setWalletsList] = useState<WalletRow[]>([])
+  const [investFields, setInvestFields] = useState({ inv_category: '', asset_id: '', wallet_id: '', quantity: '', total_paid: '', fee: '' })
 
   // Upload
   const [uploadFiles, setUploadFiles] = useState<File[]>([])
@@ -224,13 +226,14 @@ function AdministratieInner() {
 
   async function loadData() {
     setLoading(true)
-    const [accRes, txRes, vendorRes, catRes, loanRes, assetRes] = await Promise.all([
+    const [accRes, txRes, vendorRes, catRes, loanRes, assetRes, walletsRes] = await Promise.all([
       fetch('/api/accounts'),
       fetch('/api/transactions?limit=500'),
       fetch('/api/vendors'),
       fetch('/api/categories'),
       fetch('/api/loans'),
       fetch('/api/assets'),
+      fetch('/api/assets/wallets'),
     ])
     if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []); setOpeningBalances(d.opening_balances || []) }
     if (txRes.ok) {
@@ -242,6 +245,7 @@ function AdministratieInner() {
     if (catRes.ok) { const d = await catRes.json(); setCategories(d.categories || []) }
     if (loanRes.ok) { const d = await loanRes.json(); setLoans(d.loans || []) }
     if (assetRes.ok) { const d = await assetRes.json(); setAssetsList(d.assets || []) }
+    if (walletsRes.ok) { const d = await walletsRes.json(); setWalletsList(d.wallets || []) }
     setLoading(false)
   }
 
@@ -889,8 +893,16 @@ function AdministratieInner() {
         setSavingManualTx(false); return
       }
 
+      // 4. If a wallet was selected, also increment its units
+      if (investFields.wallet_id) {
+        await fetch('/api/assets/wallets', {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: investFields.wallet_id, units_delta: qty }),
+        })
+      }
+
       setTransactions(prev => [mainData.transaction, ...prev])
-      setInvestFields({ inv_category: '', asset_id: '', quantity: '', total_paid: '', fee: '' })
+      setInvestFields({ inv_category: '', asset_id: '', wallet_id: '', quantity: '', total_paid: '', fee: '' })
       setManualTx(m => ({ ...m, description: '', amount: '', category: '' }))
       setShowManualTx(false)
 
@@ -1376,7 +1388,7 @@ function AdministratieInner() {
                               <select value={investFields.asset_id}
                                 onChange={e => {
                                   const asset = assetsList.find(a => a.id === e.target.value)
-                                  setInvestFields(f => ({ ...f, asset_id: e.target.value }))
+                                  setInvestFields(f => ({ ...f, asset_id: e.target.value, wallet_id: '' }))
                                   if (asset) setManualTx(m => ({ ...m, currency: asset.currency || m.currency }))
                                 }}
                                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
@@ -1390,6 +1402,23 @@ function AdministratieInner() {
                               )}
                             </div>
                           )}
+                          {invCat === 'crypto' && investFields.asset_id && (() => {
+                            const assetWallets = walletsList.filter(w => w.asset_id === investFields.asset_id)
+                            if (assetWallets.length === 0) return null
+                            return (
+                              <div>
+                                <label className="block text-xs font-medium text-slate-500 mb-1">Wallet (optioneel)</label>
+                                <select value={investFields.wallet_id}
+                                  onChange={e => setInvestFields(f => ({ ...f, wallet_id: e.target.value }))}
+                                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
+                                  <option value="">Geen wallet</option>
+                                  {assetWallets.map(w => (
+                                    <option key={w.id} value={w.id}>{w.name} ({w.units} coins)</option>
+                                  ))}
+                                </select>
+                              </div>
+                            )
+                          })()}
                           {investFields.asset_id && (
                             <>
                               <div>
@@ -1442,7 +1471,7 @@ function AdministratieInner() {
                       className="px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors">
                       {savingManualTx ? 'Opslaan…' : 'Toevoegen'}
                     </button>
-                    <button onClick={() => { setShowManualTx(false); setManualTxError(null); setInvestFields({ inv_category: '', asset_id: '', quantity: '', total_paid: '', fee: '' }) }}
+                    <button onClick={() => { setShowManualTx(false); setManualTxError(null); setInvestFields({ inv_category: '', asset_id: '', wallet_id: '', quantity: '', total_paid: '', fee: '' }) }}
                       className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors">
                       Annuleren
                     </button>

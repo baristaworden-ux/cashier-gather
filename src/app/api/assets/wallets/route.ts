@@ -39,12 +39,16 @@ export async function PATCH(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { id, name, units, notes } = await req.json()
+  const { id, name, units, units_delta, notes } = await req.json()
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
 
   const update: Record<string, unknown> = {}
   if (name !== undefined) update.name = name.trim()
   if (units !== undefined) update.units = parseFloat(units) || 0
+  if (units_delta !== undefined) {
+    const { data: current } = await supabase.from('admin_asset_wallets').select('units').eq('id', id).eq('user_id', user.id).single()
+    update.units = (current?.units || 0) + parseFloat(units_delta)
+  }
   if (notes !== undefined) update.notes = notes?.trim() || null
 
   const { data, error } = await supabase
