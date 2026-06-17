@@ -156,7 +156,7 @@ function AssetsInner() {
       for (const b of allBalances) {
         if (!regularIds.has(b.account_id)) continue
         const ob = allOpening.find(o => o.account_id === b.account_id && o.currency === b.currency)
-        netByCur[b.currency] = (netByCur[b.currency] || 0) + b.balance - (ob?.amount ?? 0)
+        netByCur[b.currency] = (netByCur[b.currency] || 0) + b.balance + (ob?.amount ?? 0)
       }
       // Fetch EUR rates for non-EUR currencies
       const today = new Date().toISOString().slice(0, 10)

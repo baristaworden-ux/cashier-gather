@@ -374,7 +374,7 @@ export default function SettingsPage() {
                 return (
                   <div key={b.id} className="text-right">
                     <span className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full font-medium">
-                      {formatCurrency(b.balance - (ob?.amount ?? 0), b.currency)}
+                      {formatCurrency(b.balance + (ob?.amount ?? 0), b.currency)}
                     </span>
                     {ob && <p className="text-xs text-slate-400 mt-0.5">start {formatCurrency(ob.amount, b.currency)}</p>}
                   </div>
@@ -466,7 +466,7 @@ export default function SettingsPage() {
                             return (
                               <div key={b.id} className="text-right">
                                 <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">
-                                  {formatCurrency(b.balance - (ob?.amount ?? 0), b.currency)}
+                                  {formatCurrency(b.balance + (ob?.amount ?? 0), b.currency)}
                                 </span>
                                 {ob && <p className="text-xs text-slate-400 mt-0.5">start {formatCurrency(ob.amount, b.currency)}</p>}
                               </div>

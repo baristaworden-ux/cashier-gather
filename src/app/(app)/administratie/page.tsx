@@ -824,7 +824,7 @@ function AdministratieInner() {
     .filter(b => regularAccounts.some(a => a.id === b.account_id))
     .reduce((acc, b) => {
       const ob = openingBalances.find(o => o.account_id === b.account_id && o.currency === b.currency)
-      acc[b.currency] = (acc[b.currency] || 0) + b.balance - (ob?.amount ?? 0)
+      acc[b.currency] = (acc[b.currency] || 0) + b.balance + (ob?.amount ?? 0)
       return acc
     }, {} as Record<string, number>)
 
@@ -1103,7 +1103,7 @@ function AdministratieInner() {
                               {acctBalances.length === 0 ? <span className="text-xs text-slate-400">Geen saldo</span>
                                 : acctBalances.map(b => {
                                     const ob = openingBalances.find(o => o.account_id === account.id && o.currency === b.currency)
-                                    return <p key={b.id} className="text-sm font-semibold">{formatCurrency(b.balance - (ob?.amount ?? 0), b.currency)}</p>
+                                    return <p key={b.id} className="text-sm font-semibold">{formatCurrency(b.balance + (ob?.amount ?? 0), b.currency)}</p>
                                   })}
                             </div>
                           </div>
@@ -1123,7 +1123,7 @@ function AdministratieInner() {
                                   {jarBals.length === 0 ? <span className="text-xs text-slate-400">Geen saldo</span>
                                     : jarBals.map(b => {
                                         const ob = openingBalances.find(o => o.account_id === jar.id && o.currency === b.currency)
-                                        return <p key={b.id} className="text-sm font-semibold text-slate-800">{formatCurrency(b.balance - (ob?.amount ?? 0), b.currency)}</p>
+                                        return <p key={b.id} className="text-sm font-semibold text-slate-800">{formatCurrency(b.balance + (ob?.amount ?? 0), b.currency)}</p>
                                       })}
                                 </div>
                               </div>
@@ -1149,7 +1149,7 @@ function AdministratieInner() {
                             {jarBals.length === 0 ? <span className="text-xs text-slate-400">Geen saldo</span>
                               : jarBals.map(b => {
                                   const ob = openingBalances.find(o => o.account_id === jar.id && o.currency === b.currency)
-                                  return <p key={b.id} className="text-sm font-semibold">{formatCurrency(b.balance - (ob?.amount ?? 0), b.currency)}</p>
+                                  return <p key={b.id} className="text-sm font-semibold">{formatCurrency(b.balance + (ob?.amount ?? 0), b.currency)}</p>
                                 })}
                           </div>
                         </div>
