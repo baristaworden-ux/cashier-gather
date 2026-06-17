@@ -137,8 +137,9 @@ export async function DELETE(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Reverse asset/wallet units for investment transactions
-  if (tx.type === 'investment' && tx.investment_asset_id && tx.investment_units) {
+  // Reverse asset/wallet units for buy (type=investment, units>0) and sell (type=income, units<0).
+  // Subtracting the stored delta reverses it in both directions.
+  if (tx.investment_asset_id && tx.investment_units != null && tx.investment_units !== 0) {
     const { data: currentAsset } = await supabase
       .from('admin_assets').select('units').eq('id', tx.investment_asset_id).eq('user_id', user.id).single()
     if (currentAsset) {
