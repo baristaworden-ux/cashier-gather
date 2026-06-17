@@ -590,6 +590,9 @@ function AdministratieInner() {
     const res = await fetch(`/api/transactions?id=${tx.id}`, { method: 'DELETE' })
     if (res.ok) {
       setTransactions(txs => txs.filter(t => t.id !== tx.id))
+      const [accRes, assetRes] = await Promise.all([fetch('/api/accounts'), fetch('/api/assets')])
+      if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []); setOpeningBalances(d.opening_balances || []) }
+      if (assetRes.ok) { const d = await assetRes.json(); setAssetsList(d.assets || []) }
     }
   }
 
@@ -614,6 +617,9 @@ function AdministratieInner() {
     const deleted = new Set(results.filter(r => r.ok).map(r => r.id))
     setTransactions(txs => txs.filter(t => !deleted.has(t.id)))
     setSelectedIds(new Set())
+    const [accRes, assetRes] = await Promise.all([fetch('/api/accounts'), fetch('/api/assets')])
+    if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []); setOpeningBalances(d.opening_balances || []) }
+    if (assetRes.ok) { const d = await assetRes.json(); setAssetsList(d.assets || []) }
   }
 
   async function bulkRevert() {
@@ -894,7 +900,8 @@ function AdministratieInner() {
       })
       if (!assetPatchRes.ok) {
         const assetErr = await assetPatchRes.json().catch(() => ({}))
-        setManualTxError(`Transactie opgeslagen, maar assets niet bijgewerkt: ${assetErr.error || 'onbekende fout'}`)
+        await fetch(`/api/transactions?id=${mainData.transaction.id}`, { method: 'DELETE' })
+        setManualTxError(`Opslaan mislukt: assets niet bijgewerkt: ${assetErr.error || 'onbekende fout'}`)
         setSavingManualTx(false); return
       }
 
@@ -906,7 +913,9 @@ function AdministratieInner() {
         })
         if (!walletPatchRes.ok) {
           const walletErr = await walletPatchRes.json().catch(() => ({}))
-          setManualTxError(`Transactie opgeslagen, maar wallet niet bijgewerkt: ${walletErr.error || 'onbekende fout'}`)
+          await fetch('/api/assets', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: investFields.asset_id, units_delta: -qty }) })
+          await fetch(`/api/transactions?id=${mainData.transaction.id}`, { method: 'DELETE' })
+          setManualTxError(`Opslaan mislukt: wallet niet bijgewerkt: ${walletErr.error || 'onbekende fout'}`)
           setSavingManualTx(false); return
         }
       }
@@ -916,10 +925,11 @@ function AdministratieInner() {
       setManualTx(m => ({ ...m, description: '', amount: '', category: '' }))
       setShowManualTx(false)
 
-      // Reload assets + balances
-      const [accRes, assetRes] = await Promise.all([fetch('/api/accounts'), fetch('/api/assets')])
+      // Reload assets, wallets + balances
+      const [accRes, assetRes, walletsRes] = await Promise.all([fetch('/api/accounts'), fetch('/api/assets'), fetch('/api/assets/wallets')])
       if (accRes.ok) { const d = await accRes.json(); setBalances(d.balances || []); setOpeningBalances(d.opening_balances || []) }
       if (assetRes.ok) { const d = await assetRes.json(); setAssetsList(d.assets || []) }
+      if (walletsRes.ok) { const d = await walletsRes.json(); setWalletsList(d.wallets || []) }
       setSavingManualTx(false); return
     }
 
@@ -1397,9 +1407,7 @@ function AdministratieInner() {
                               <label className="block text-xs font-medium text-slate-500 mb-1">Belegging</label>
                               <select value={investFields.asset_id}
                                 onChange={e => {
-                                  const asset = assetsList.find(a => a.id === e.target.value)
                                   setInvestFields(f => ({ ...f, asset_id: e.target.value, wallet_id: '' }))
-                                  if (asset) setManualTx(m => ({ ...m, currency: asset.currency || m.currency }))
                                 }}
                                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
                                 <option value="">Kies belegging…</option>
@@ -1423,7 +1431,7 @@ function AdministratieInner() {
                                   className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
                                   <option value="">Geen wallet</option>
                                   {assetWallets.map(w => (
-                                    <option key={w.id} value={w.id}>{w.name} ({w.units} coins)</option>
+                                    <option key={w.id} value={w.id}>{w.name} ({w.units} {selAsset?.unit || 'units'})</option>
                                   ))}
                                 </select>
                               </div>
