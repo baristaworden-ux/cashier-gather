@@ -864,7 +864,7 @@ function AdministratieInner() {
       }
 
       const description = manualTx.description.trim() || `Koop ${qty} ${selectedAsset?.symbol || selectedAsset?.name || ''}`
-      const currency = selectedAsset?.currency || manualTx.currency
+      const currency = manualTx.currency
 
       // 1. Save main investment transaction
       const mainRes = await fetch('/api/transactions', {

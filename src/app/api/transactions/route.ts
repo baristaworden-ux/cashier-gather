@@ -71,12 +71,9 @@ export async function POST(req: NextRequest) {
       .select('id, balance, currency, user_id')
       .eq('account_id', account_id)
 
-    // Priority: user's own record matching currency → user's own any record → any record
+    // Exact currency match only — no cross-currency fallback (that caused double-deduction bugs)
     const existing = records?.find(r => r.user_id === user.id && r.currency === currency)
-      ?? records?.find(r => r.user_id === user.id)
       ?? records?.find(r => r.currency === currency)
-      ?? records?.find(r => !r.currency)
-      ?? records?.[0]
 
     if (existing) {
       await supabase.from('admin_account_balances')
@@ -136,17 +133,17 @@ export async function DELETE(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Recalculate balance after delete (only processed transactions affect balance)
+  // Recalculate balances for ALL currencies on this account from remaining processed transactions.
+  // This prevents phantom balance records from past currency mismatches staying wrong.
   if (tx.status === 'processed') {
-    const { data: processedTxs } = await supabase
+    const { data: remainingTxs } = await supabase
       .from('admin_transactions')
-      .select('id, amount, type, transfer_group_id')
+      .select('id, amount, type, currency, transfer_group_id')
       .eq('account_id', tx.account_id)
-      .eq('currency', tx.currency)
       .eq('status', 'processed')
 
-    if (processedTxs) {
-      const transferGroupIds = processedTxs
+    if (remainingTxs) {
+      const transferGroupIds = remainingTxs
         .filter(t => t.type === 'transfer' && t.transfer_group_id)
         .map(t => t.transfer_group_id as string)
 
@@ -163,18 +160,33 @@ export async function DELETE(req: NextRequest) {
         }
       }
 
-      const balance = processedTxs.reduce((sum, t) => {
-        if (t.type === 'income') return sum + t.amount
-        if (t.type === 'transfer' && t.transfer_group_id && inboundTransferIds.has(t.transfer_group_id)) return sum + t.amount
-        return sum - t.amount
-      }, 0)
+      // Group net balance by currency
+      const balanceByCurrency: Record<string, number> = {}
+      for (const t of remainingTxs) {
+        const cur = t.currency
+        balanceByCurrency[cur] = (balanceByCurrency[cur] ?? 0)
+          + (t.type === 'income' ? t.amount
+            : (t.type === 'transfer' && t.transfer_group_id && inboundTransferIds.has(t.transfer_group_id)) ? t.amount
+            : -t.amount)
+      }
 
-      await supabase
-        .from('admin_account_balances')
-        .upsert(
-          { account_id: tx.account_id, user_id: user.id, currency: tx.currency, balance, updated_at: new Date().toISOString() },
+      // Upsert each currency that still has transactions
+      await Promise.all(
+        Object.entries(balanceByCurrency).map(([cur, bal]) =>
+          supabase.from('admin_account_balances').upsert(
+            { account_id: tx.account_id, user_id: user.id, currency: cur, balance: bal, updated_at: new Date().toISOString() },
+            { onConflict: 'account_id,currency' }
+          )
+        )
+      )
+
+      // Zero out the deleted transaction's currency if no remaining transactions use it
+      if (!(tx.currency in balanceByCurrency)) {
+        await supabase.from('admin_account_balances').upsert(
+          { account_id: tx.account_id, user_id: user.id, currency: tx.currency, balance: 0, updated_at: new Date().toISOString() },
           { onConflict: 'account_id,currency' }
         )
+      }
     }
   }
 
