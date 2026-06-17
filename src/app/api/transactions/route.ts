@@ -163,36 +163,17 @@ export async function DELETE(req: NextRequest) {
   if (tx.status === 'processed') {
     const { data: remainingTxs } = await supabase
       .from('admin_transactions')
-      .select('id, amount, type, currency, transfer_group_id')
+      .select('id, amount, type, currency')
       .eq('account_id', tx.account_id)
       .eq('status', 'processed')
 
     if (remainingTxs) {
-      const transferGroupIds = remainingTxs
-        .filter(t => t.type === 'transfer' && t.transfer_group_id)
-        .map(t => t.transfer_group_id as string)
-
-      let inboundTransferIds = new Set<string>()
-      if (transferGroupIds.length > 0) {
-        const { data: siblings } = await supabase
-          .from('admin_transactions')
-          .select('transfer_group_id, account_id')
-          .in('transfer_group_id', transferGroupIds)
-          .neq('account_id', tx.account_id)
-          .eq('user_id', user.id)
-        if (siblings) {
-          inboundTransferIds = new Set(siblings.map(s => s.transfer_group_id as string))
-        }
-      }
-
-      // Group net balance by currency
+      // Group net balance by currency. Direction is encoded in type: income = +, else = −.
       const balanceByCurrency: Record<string, number> = {}
       for (const t of remainingTxs) {
         const cur = t.currency
         balanceByCurrency[cur] = (balanceByCurrency[cur] ?? 0)
-          + (t.type === 'income' ? t.amount
-            : (t.type === 'transfer' && t.transfer_group_id && inboundTransferIds.has(t.transfer_group_id)) ? t.amount
-            : -t.amount)
+          + (t.type === 'income' ? t.amount : -t.amount)
       }
 
       // Upsert each currency that still has transactions

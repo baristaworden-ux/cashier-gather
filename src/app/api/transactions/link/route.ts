@@ -10,15 +10,48 @@ export async function POST(req: NextRequest) {
   const { id_a, id_b } = await req.json()
   if (!id_a || !id_b) return NextResponse.json({ error: 'Missing ids' }, { status: 400 })
 
-  const transfer_group_id = crypto.randomUUID()
-
-  const { error } = await supabase
+  // Fetch both transactions to determine direction
+  const { data: txs } = await supabase
     .from('admin_transactions')
-    .update({ transfer_group_id, type: 'transfer' })
+    .select('id, type')
     .in('id', [id_a, id_b])
     .eq('user_id', user.id)
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (!txs || txs.length !== 2) return NextResponse.json({ error: 'Transactions not found' }, { status: 404 })
+
+  const transfer_group_id = crypto.randomUUID()
+
+  // Preserve direction: one leg must be 'income' (+) and the other 'transfer' (-).
+  // If the data already has one income side, keep it. Otherwise treat id_b as the receiving leg.
+  const hasIncome = txs.find(t => t.type === 'income')
+  const hasSending = txs.find(t => t.type !== 'income')
+
+  if (hasIncome && hasSending) {
+    // Clear direction — keep existing types, just link them
+    const { error } = await supabase
+      .from('admin_transactions')
+      .update({ transfer_group_id })
+      .in('id', [id_a, id_b])
+      .eq('user_id', user.id)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  } else {
+    // Both have same type (both expense/transfer, or both income).
+    // Treat id_a as outflow (transfer) and id_b as inflow (income).
+    const { error: errA } = await supabase
+      .from('admin_transactions')
+      .update({ transfer_group_id, type: 'transfer' })
+      .eq('id', id_a)
+      .eq('user_id', user.id)
+    if (errA) return NextResponse.json({ error: errA.message }, { status: 500 })
+
+    const { error: errB } = await supabase
+      .from('admin_transactions')
+      .update({ transfer_group_id, type: 'income' })
+      .eq('id', id_b)
+      .eq('user_id', user.id)
+    if (errB) return NextResponse.json({ error: errB.message }, { status: 500 })
+  }
+
   return NextResponse.json({ transfer_group_id })
 }
 

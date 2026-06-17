@@ -1001,8 +1001,8 @@ function AdministratieInner() {
     const catTypeMap = new Map(categories.map(c => [c.name, c.type]))
     const byCategory: Record<string, { income: number; expense: number; investment: number }> = {}
     for (const t of txs) {
-      // Skip internal transfers — they are not income or expenses
-      if (t.type === 'transfer') continue
+      // Skip internal transfers (both legs) — they are not income or expenses
+      if (t.type === 'transfer' || t.transfer_group_id) continue
       const cat = t.category || 'Zonder categorie'
       if (!byCategory[cat]) byCategory[cat] = { income: 0, expense: 0, investment: 0 }
       const catType = catTypeMap.get(cat)
