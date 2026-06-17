@@ -1309,18 +1309,16 @@ function AdministratieInner() {
                           className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
                       </div>
                     )}
-                    {manualTx.type !== 'investment' && (
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Valuta</label>
-                        <select value={manualTx.currency} onChange={e => setManualTx(m => ({ ...m, currency: e.target.value }))}
-                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
-                          {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
-                          <option value="USDT">USDT</option>
-                          <option value="BTC">BTC</option>
-                          <option value="ETH">ETH</option>
-                        </select>
-                      </div>
-                    )}
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Valuta</label>
+                      <select value={manualTx.currency} onChange={e => setManualTx(m => ({ ...m, currency: e.target.value }))}
+                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
+                        {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+                        <option value="USDT">USDT</option>
+                        <option value="BTC">BTC</option>
+                        <option value="ETH">ETH</option>
+                      </select>
+                    </div>
                     {manualTx.type !== 'investment' && (
                       <div>
                         <label className="block text-xs font-medium text-slate-500 mb-1">Categorie (optioneel)</label>
