@@ -56,8 +56,14 @@ function AdministratieInner() {
   const [filterDateTo, setFilterDateTo] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('date_desc')
   const [visibleCount, setVisibleCount] = useState(200)
-  const [txTab, setTxTab] = useState<'draft' | 'processed'>('draft')
+  const [txTab, setTxTab] = useState<'draft' | 'processed' | 'overboekingen'>('draft')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+
+  type TransferLeg = { id: string; account_id: string; account_name: string; date: string; description: string; amount: number; currency: string; type: string; status: string }
+  type TransferPair = { group_id: string; broken: boolean; legs: TransferLeg[] }
+  const [transferPairs, setTransferPairs] = useState<TransferPair[] | null>(null)
+  const [pairsLoading, setPairsLoading] = useState(false)
+  const [swappingGroup, setSwappingGroup] = useState<string | null>(null)
   const [showAiPrompt, setShowAiPrompt] = useState(false)
   const aiPromptDismissed = useRef(false)
 
@@ -1166,6 +1172,36 @@ function AdministratieInner() {
     setReconcileTxsLoading(false)
   }
 
+  async function loadTransferPairs() {
+    setPairsLoading(true)
+    const res = await fetch('/api/transfers/pairs')
+    if (res.ok) {
+      const { pairs } = await res.json()
+      setTransferPairs(pairs)
+    }
+    setPairsLoading(false)
+  }
+
+  async function swapTransferPair(group_id: string) {
+    setSwappingGroup(group_id)
+    const res = await fetch('/api/transfers/pairs', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ group_id }),
+    })
+    if (res.ok) {
+      const { types } = await res.json()
+      setTransferPairs(pairs => pairs?.map(p =>
+        p.group_id === group_id
+          ? { ...p, broken: false, legs: p.legs.map(l => ({ ...l, type: types[l.id] ?? l.type })) }
+          : p
+      ) ?? null)
+      const accRes = await fetch('/api/accounts')
+      if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []); setOpeningBalances(d.opening_balances || []) }
+    }
+    setSwappingGroup(null)
+  }
+
   // Reset visible count whenever filters/tab/sort change
   useEffect(() => { setVisibleCount(200) }, [txTab, filterAccount, filterType, filterCategory, filterDateFrom, filterDateTo, sortKey, search])
 
@@ -1410,6 +1446,13 @@ function AdministratieInner() {
                     txTab === 'processed' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700')}
                 >
                   Processed
+                </button>
+                <button
+                  onClick={() => { setTxTab('overboekingen'); setSelectedIds(new Set()); if (!transferPairs) loadTransferPairs() }}
+                  className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
+                    txTab === 'overboekingen' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700')}
+                >
+                  Overboekingen
                 </button>
               </div>
                 <button onClick={() => setShowManualTx(v => !v)}
@@ -2246,6 +2289,89 @@ function AdministratieInner() {
                       </button>
                     )}
                   </div>
+                </div>
+              )}
+
+              {/* ── OVERBOEKINGEN CONTROLE ── */}
+              {txTab === 'overboekingen' && (
+                <div className="space-y-4 max-w-3xl">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-800">Gekoppelde overboekingen</p>
+                      <p className="text-xs text-slate-400 mt-0.5">Controleer of de richting (debet/credit) klopt. Paren met een waarschuwing staan bovenaan.</p>
+                    </div>
+                    <button onClick={loadTransferPairs} disabled={pairsLoading}
+                      className="flex items-center gap-1.5 text-xs px-3 py-1.5 border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50">
+                      <RotateCcw size={12} className={pairsLoading ? 'animate-spin' : ''} />
+                      {pairsLoading ? 'Laden…' : 'Vernieuwen'}
+                    </button>
+                  </div>
+
+                  {pairsLoading && !transferPairs && (
+                    <p className="text-sm text-slate-400 italic">Laden…</p>
+                  )}
+
+                  {transferPairs !== null && transferPairs.length === 0 && (
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-4 text-sm text-emerald-700">
+                      Geen gekoppelde overboekingen gevonden.
+                    </div>
+                  )}
+
+                  {transferPairs !== null && transferPairs.length > 0 && (
+                    <div className="space-y-2">
+                      {transferPairs.map(pair => {
+                        const [legA, legB] = pair.legs
+                        const incomeleg = pair.legs.find(l => l.type === 'income')
+                        const transferleg = pair.legs.find(l => l.type !== 'income')
+                        return (
+                          <div key={pair.group_id}
+                            className={cn('bg-white border rounded-xl p-4 space-y-3',
+                              pair.broken ? 'border-amber-300 bg-amber-50/40' : 'border-slate-200')}>
+                            {pair.broken && (
+                              <div className="flex items-center gap-1.5 text-xs font-medium text-amber-700">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                                Beide benen hebben hetzelfde type — richting onbekend. Swap indien nodig.
+                              </div>
+                            )}
+                            <div className="grid grid-cols-2 gap-3">
+                              {pair.legs.map(leg => (
+                                <div key={leg.id} className={cn('rounded-lg p-3 space-y-1',
+                                  leg.type === 'income' ? 'bg-emerald-50 border border-emerald-200' : 'bg-slate-50 border border-slate-200')}>
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-xs font-semibold text-slate-700 truncate">{leg.account_name}</span>
+                                    <span className={cn('text-xs font-bold shrink-0',
+                                      leg.type === 'income' ? 'text-emerald-600' : 'text-red-500')}>
+                                      {leg.type === 'income' ? '+' : '−'}{formatCurrency(leg.amount, leg.currency)}
+                                    </span>
+                                  </div>
+                                  <p className="text-xs text-slate-500 truncate">{leg.description}</p>
+                                  <p className="text-xs text-slate-400">{formatDate(leg.date)}</p>
+                                  <span className={cn('inline-block text-xs px-1.5 py-0.5 rounded font-medium',
+                                    leg.type === 'income' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600')}>
+                                    {leg.type === 'income' ? 'Ontvangen (credit)' : 'Verzonden (debet)'}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                            {!pair.broken && (
+                              <p className="text-xs text-emerald-600 font-medium">
+                                ✓ {incomeleg?.account_name} ontvangt van {transferleg?.account_name}
+                              </p>
+                            )}
+                            <div className="flex justify-end">
+                              <button
+                                onClick={() => swapTransferPair(pair.group_id)}
+                                disabled={swappingGroup === pair.group_id}
+                                className="flex items-center gap-1.5 text-xs px-3 py-1.5 border border-slate-200 bg-white rounded-lg text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50">
+                                <ArrowUpDown size={11} />
+                                {swappingGroup === pair.group_id ? 'Wisselen…' : 'Swap richting'}
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
