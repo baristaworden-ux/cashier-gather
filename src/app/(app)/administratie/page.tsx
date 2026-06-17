@@ -104,6 +104,11 @@ function AdministratieInner() {
   const [savingManualTx, setSavingManualTx] = useState(false)
   const [manualTxError, setManualTxError] = useState<string | null>(null)
 
+  // Investment transaction extras
+  type AssetRow = { id: string; name: string; symbol: string | null; category: string; units: number; currency: string; price_ticker: string | null }
+  const [assetsList, setAssetsList] = useState<AssetRow[]>([])
+  const [investFields, setInvestFields] = useState({ inv_category: '', asset_id: '', quantity: '', price_per_unit: '', fee: '' })
+
   // Upload
   const [uploadFiles, setUploadFiles] = useState<File[]>([])
   const [uploadFileAccounts, setUploadFileAccounts] = useState<Record<number, string>>({})
@@ -219,12 +224,13 @@ function AdministratieInner() {
 
   async function loadData() {
     setLoading(true)
-    const [accRes, txRes, vendorRes, catRes, loanRes] = await Promise.all([
+    const [accRes, txRes, vendorRes, catRes, loanRes, assetRes] = await Promise.all([
       fetch('/api/accounts'),
       fetch('/api/transactions?limit=500'),
       fetch('/api/vendors'),
       fetch('/api/categories'),
       fetch('/api/loans'),
+      fetch('/api/assets'),
     ])
     if (accRes.ok) { const d = await accRes.json(); setAccounts(d.accounts || []); setBalances(d.balances || []); setOpeningBalances(d.opening_balances || []) }
     if (txRes.ok) {
@@ -235,6 +241,7 @@ function AdministratieInner() {
     if (vendorRes.ok) { const d = await vendorRes.json(); setVendors(d.vendors || []) }
     if (catRes.ok) { const d = await catRes.json(); setCategories(d.categories || []) }
     if (loanRes.ok) { const d = await loanRes.json(); setLoans(d.loans || []) }
+    if (assetRes.ok) { const d = await assetRes.json(); setAssetsList(d.assets || []) }
     setLoading(false)
   }
 
@@ -838,25 +845,72 @@ function AdministratieInner() {
   const draftCount = transactions.filter(t => t.status === 'draft').length
 
   async function addManualTx() {
-    if (!manualTx.account_id || !manualTx.description.trim() || !manualTx.amount || !manualTx.currency) return
     setSavingManualTx(true); setManualTxError(null)
+
+    if (manualTx.type === 'investment') {
+      const selectedAsset = assetsList.find(a => a.id === investFields.asset_id)
+      const qty = parseFloat(investFields.quantity) || 0
+      const pricePerUnit = parseFloat(investFields.price_per_unit) || 0
+      const fee = parseFloat(investFields.fee) || 0
+      const investmentCost = qty * pricePerUnit
+
+      if (!manualTx.account_id || !investFields.asset_id || qty <= 0 || pricePerUnit <= 0) {
+        setManualTxError('Vul rekening, belegging, aantal en prijs per stuk in')
+        setSavingManualTx(false); return
+      }
+
+      const description = manualTx.description.trim() || `Koop ${qty} ${selectedAsset?.symbol || selectedAsset?.name || ''}`
+      const currency = selectedAsset?.currency || manualTx.currency
+
+      // 1. Save main investment transaction
+      const mainRes = await fetch('/api/transactions', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...manualTx, description, amount: String(investmentCost), currency, category: selectedAsset?.category || 'Investering' }),
+      })
+      const mainData = await mainRes.json()
+      if (!mainRes.ok) { setManualTxError(mainData.error || 'Opslaan mislukt'); setSavingManualTx(false); return }
+
+      // 2. If fee > 0, save fee as separate expense
+      if (fee > 0) {
+        await fetch('/api/transactions', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...manualTx, description: `Investeringsfee - ${selectedAsset?.name}`, amount: String(fee), currency: manualTx.currency, type: 'expense', category: 'Investeringsfee' }),
+        })
+      }
+
+      // 3. Add quantity to asset
+      await fetch('/api/assets', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: investFields.asset_id, units_delta: qty }),
+      })
+
+      setTransactions(prev => [mainData.transaction, ...prev])
+      setInvestFields({ inv_category: '', asset_id: '', quantity: '', price_per_unit: '', fee: '' })
+      setManualTx(m => ({ ...m, description: '', amount: '', category: '' }))
+      setShowManualTx(false)
+
+      // Reload assets + balances
+      const [accRes, assetRes] = await Promise.all([fetch('/api/accounts'), fetch('/api/assets')])
+      if (accRes.ok) { const d = await accRes.json(); setBalances(d.balances || []); setOpeningBalances(d.opening_balances || []) }
+      if (assetRes.ok) { const d = await assetRes.json(); setAssetsList(d.assets || []) }
+      setSavingManualTx(false); return
+    }
+
+    // Non-investment transaction
+    if (!manualTx.account_id || !manualTx.description.trim() || !manualTx.amount || !manualTx.currency) {
+      setSavingManualTx(false); return
+    }
     const res = await fetch('/api/transactions', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(manualTx),
     })
     const data = await res.json()
     if (res.ok) {
-      console.log('[debug] balance records after manual tx:', data._debug?.balanceRecords)
       setTransactions(prev => [data.transaction, ...prev])
       setManualTx(m => ({ ...m, description: '', amount: '', category: '' }))
       setShowManualTx(false)
-      // Reload balances so overzicht reflects the updated stored balance immediately
       const accRes = await fetch('/api/accounts')
-      if (accRes.ok) {
-        const accData = await accRes.json()
-        setBalances(accData.balances || [])
-        setOpeningBalances(accData.opening_balances || [])
-      }
+      if (accRes.ok) { const d = await accRes.json(); setBalances(d.balances || []); setOpeningBalances(d.opening_balances || []) }
     } else {
       setManualTxError(data.error || 'Opslaan mislukt')
     }
@@ -1247,28 +1301,34 @@ function AdministratieInner() {
                         onChange={e => setManualTx(m => ({ ...m, description: e.target.value }))}
                         className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
                     </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-500 mb-1">Bedrag</label>
-                      <input type="number" step="any" min="0" placeholder="0.00" value={manualTx.amount}
-                        onChange={e => setManualTx(m => ({ ...m, amount: e.target.value }))}
-                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-500 mb-1">Valuta</label>
-                      <select value={manualTx.currency} onChange={e => setManualTx(m => ({ ...m, currency: e.target.value }))}
-                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
-                        {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
-                        <option value="USDT">USDT</option>
-                        <option value="BTC">BTC</option>
-                        <option value="ETH">ETH</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-500 mb-1">Categorie (optioneel)</label>
-                      <input type="text" placeholder="bijv. Crypto" value={manualTx.category}
-                        onChange={e => setManualTx(m => ({ ...m, category: e.target.value }))}
-                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
-                    </div>
+                    {manualTx.type !== 'investment' && (
+                      <div>
+                        <label className="block text-xs font-medium text-slate-500 mb-1">Bedrag</label>
+                        <input type="number" step="any" min="0" placeholder="0.00" value={manualTx.amount}
+                          onChange={e => setManualTx(m => ({ ...m, amount: e.target.value }))}
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+                      </div>
+                    )}
+                    {manualTx.type !== 'investment' && (
+                      <div>
+                        <label className="block text-xs font-medium text-slate-500 mb-1">Valuta</label>
+                        <select value={manualTx.currency} onChange={e => setManualTx(m => ({ ...m, currency: e.target.value }))}
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
+                          {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+                          <option value="USDT">USDT</option>
+                          <option value="BTC">BTC</option>
+                          <option value="ETH">ETH</option>
+                        </select>
+                      </div>
+                    )}
+                    {manualTx.type !== 'investment' && (
+                      <div>
+                        <label className="block text-xs font-medium text-slate-500 mb-1">Categorie (optioneel)</label>
+                        <input type="text" placeholder="bijv. Crypto" value={manualTx.category}
+                          onChange={e => setManualTx(m => ({ ...m, category: e.target.value }))}
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+                      </div>
+                    )}
                     <div>
                       <label className="block text-xs font-medium text-slate-500 mb-1">Status</label>
                       <select value={manualTx.status} onChange={e => setManualTx(m => ({ ...m, status: e.target.value }))}
@@ -1278,13 +1338,102 @@ function AdministratieInner() {
                       </select>
                     </div>
                   </div>
+
+                  {/* Investment-specific fields */}
+                  {manualTx.type === 'investment' && (() => {
+                    const invCat = investFields.inv_category
+                    const selAsset = assetsList.find(a => a.id === investFields.asset_id)
+                    const qty = parseFloat(investFields.quantity) || 0
+                    const ppu = parseFloat(investFields.price_per_unit) || 0
+                    const fee = parseFloat(investFields.fee) || 0
+                    const cost = qty * ppu
+                    const total = cost + fee
+                    const filteredAssets = assetsList.filter(a => a.category === invCat)
+                    return (
+                      <div className="border border-indigo-100 rounded-xl p-3 bg-indigo-50/40 space-y-3">
+                        <p className="text-xs font-semibold text-indigo-700">Investering details</p>
+                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                          <div>
+                            <label className="block text-xs font-medium text-slate-500 mb-1">Type investering</label>
+                            <select value={invCat}
+                              onChange={e => setInvestFields(f => ({ ...f, inv_category: e.target.value, asset_id: '' }))}
+                              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
+                              <option value="">Kies type…</option>
+                              <option value="crypto">Crypto</option>
+                              <option value="stocks">Aandelen / ETF</option>
+                              <option value="metals">Metalen</option>
+                              <option value="cash">Cash / Stablecoin</option>
+                            </select>
+                          </div>
+                          {invCat && (
+                            <div>
+                              <label className="block text-xs font-medium text-slate-500 mb-1">Belegging</label>
+                              <select value={investFields.asset_id}
+                                onChange={e => {
+                                  const asset = assetsList.find(a => a.id === e.target.value)
+                                  setInvestFields(f => ({ ...f, asset_id: e.target.value, price_per_unit: asset?.current_price ? String(asset.current_price) : f.price_per_unit }))
+                                  if (asset) setManualTx(m => ({ ...m, currency: asset.currency || m.currency }))
+                                }}
+                                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400 bg-white">
+                                <option value="">Kies belegging…</option>
+                                {filteredAssets.map(a => (
+                                  <option key={a.id} value={a.id}>{a.name}{a.symbol ? ` (${a.symbol})` : ''}</option>
+                                ))}
+                              </select>
+                              {filteredAssets.length === 0 && (
+                                <p className="text-xs text-amber-600 mt-1">Geen {invCat} assets gevonden. Voeg ze eerst toe via Assets.</p>
+                              )}
+                            </div>
+                          )}
+                          {investFields.asset_id && (
+                            <>
+                              <div>
+                                <label className="block text-xs font-medium text-slate-500 mb-1">Aantal</label>
+                                <input type="number" step="any" min="0" placeholder="0" value={investFields.quantity}
+                                  onChange={e => setInvestFields(f => ({ ...f, quantity: e.target.value }))}
+                                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-slate-500 mb-1">
+                                  Prijs per stuk ({selAsset?.currency || 'EUR'})
+                                </label>
+                                <input type="number" step="any" min="0" placeholder="0.00" value={investFields.price_per_unit}
+                                  onChange={e => setInvestFields(f => ({ ...f, price_per_unit: e.target.value }))}
+                                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-slate-500 mb-1">Fee (optioneel)</label>
+                                <input type="number" step="any" min="0" placeholder="0.00" value={investFields.fee}
+                                  onChange={e => setInvestFields(f => ({ ...f, fee: e.target.value }))}
+                                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-400" />
+                              </div>
+                            </>
+                          )}
+                        </div>
+                        {cost > 0 && (
+                          <div className="text-xs space-y-0.5 pt-1 text-slate-600">
+                            <div>Investeringsbedrag: <span className="font-medium">{cost.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 8 })} {selAsset?.currency}</span></div>
+                            {fee > 0 && <div>Fee (apart geboekt): <span className="font-medium">{fee.toLocaleString('nl-NL', { minimumFractionDigits: 2 })} {manualTx.currency}</span></div>}
+                            <div className="font-semibold text-slate-800">Totaal: {total.toLocaleString('nl-NL', { minimumFractionDigits: 2 })} {manualTx.currency}</div>
+                            <div className="text-indigo-600">+{qty} {selAsset?.symbol || selAsset?.name} wordt toegevoegd aan assets</div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
+
                   {manualTxError && <p className="text-xs text-red-500">{manualTxError}</p>}
                   <div className="flex gap-2 pt-1">
-                    <button onClick={addManualTx} disabled={savingManualTx || !manualTx.account_id || !manualTx.description.trim() || !manualTx.amount}
+                    <button onClick={addManualTx}
+                      disabled={savingManualTx || !manualTx.account_id || (
+                        manualTx.type === 'investment'
+                          ? !investFields.asset_id || !investFields.quantity || !investFields.price_per_unit
+                          : !manualTx.description.trim() || !manualTx.amount
+                      )}
                       className="px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors">
                       {savingManualTx ? 'Opslaan…' : 'Toevoegen'}
                     </button>
-                    <button onClick={() => { setShowManualTx(false); setManualTxError(null) }}
+                    <button onClick={() => { setShowManualTx(false); setManualTxError(null); setInvestFields({ inv_category: '', asset_id: '', quantity: '', price_per_unit: '', fee: '' }) }}
                       className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors">
                       Annuleren
                     </button>

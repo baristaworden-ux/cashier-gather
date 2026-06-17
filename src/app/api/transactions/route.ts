@@ -62,7 +62,6 @@ export async function POST(req: NextRequest) {
 
   // Increment the existing balance. Fetch ALL balance records for this account so we
   // can pick the right one regardless of whether currency is null or 'EUR'.
-  let balanceDebug: unknown[] = []
   if (tx && (status === 'processed' || !status)) {
     const parsedAmount = parseFloat(amount)
     const delta = type === 'income' ? parsedAmount : -parsedAmount
@@ -71,8 +70,6 @@ export async function POST(req: NextRequest) {
       .from('admin_account_balances')
       .select('id, balance, currency, user_id')
       .eq('account_id', account_id)
-
-    balanceDebug = records ?? []
 
     // Priority: user's own record matching currency → user's own any record → any record
     const existing = records?.find(r => r.user_id === user.id && r.currency === currency)
@@ -91,7 +88,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ transaction: tx, _debug: { balanceRecords: balanceDebug } })
+  return NextResponse.json({ transaction: tx })
 }
 
 export async function PATCH(req: NextRequest) {

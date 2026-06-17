@@ -62,6 +62,10 @@ export async function PATCH(req: NextRequest) {
   if (body.symbol !== undefined) updateData.symbol = body.symbol?.trim() || null
   if (body.category !== undefined) updateData.category = body.category
   if (body.units !== undefined) updateData.units = parseFloat(body.units) || 0
+  if (body.units_delta !== undefined) {
+    const { data: current } = await supabase.from('admin_assets').select('units').eq('id', id).eq('user_id', user.id).single()
+    updateData.units = (current?.units || 0) + parseFloat(body.units_delta)
+  }
   if (body.current_price !== undefined) updateData.current_price = parseFloat(body.current_price) || 0
   if (body.currency !== undefined) updateData.currency = body.currency
   if (body.purchase_price !== undefined) updateData.purchase_price = parseFloat(body.purchase_price) || null
