@@ -68,6 +68,34 @@ PETTY CASH CALCULATION section (often on the SECOND / BACK page of the form):
 NOTES section (same page as Petty Cash Calculation):
   notes — any handwritten notes below the petty cash section (e.g. settlement notes, discrepancy explanations). Empty string if blank.`
 
+function extractJSON(text: string): string | null {
+  // Try direct parse first
+  try { JSON.parse(text); return text } catch {}
+  // Try each { in the text; skip ones that don't produce valid JSON
+  let searchFrom = 0
+  while (true) {
+    const start = text.indexOf('{', searchFrom)
+    if (start === -1) return null
+    // Walk balanced braces from this {
+    let depth = 0, inString = false, escape = false
+    let end = -1
+    for (let i = start; i < text.length; i++) {
+      const ch = text[i]
+      if (escape) { escape = false; continue }
+      if (ch === '\\' && inString) { escape = true; continue }
+      if (ch === '"') { inString = !inString; continue }
+      if (!inString) {
+        if (ch === '{') depth++
+        else if (ch === '}') { depth--; if (depth === 0) { end = i; break } }
+      }
+    }
+    if (end === -1) return null
+    const candidate = text.slice(start, end + 1)
+    try { JSON.parse(candidate); return candidate } catch {}
+    searchFrom = start + 1
+  }
+}
+
 async function fileToImageBlock(file: File) {
   const bytes = await file.arrayBuffer()
   return {
@@ -137,10 +165,17 @@ Known handwriting variations seen in practice (use the canonical list name if it
     console.log('Claude stop_reason:', stopReason)
     const textBlock = message.content.find(b => b.type === 'text')
     const raw = textBlock?.type === 'text' ? textBlock.text.trim() : ''
-    const jsonMatch = raw.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) return NextResponse.json({ error: 'AI could not recognise the form', raw: raw.slice(0, 500), stopReason }, { status: 422 })
 
-    const data = JSON.parse(jsonMatch[0])
+    const jsonStr = extractJSON(raw)
+    if (!jsonStr) return NextResponse.json({ error: 'AI could not recognise the form', raw: raw.slice(0, 500), stopReason }, { status: 422 })
+
+    let data: unknown
+    try {
+      data = JSON.parse(jsonStr)
+    } catch (parseErr) {
+      const msg = parseErr instanceof Error ? parseErr.message : 'JSON parse failed'
+      return NextResponse.json({ error: `AI returned invalid JSON: ${msg}`, raw: raw.slice(0, 500), stopReason }, { status: 422 })
+    }
     return NextResponse.json(data)
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Unknown error'
