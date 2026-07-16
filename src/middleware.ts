@@ -8,7 +8,12 @@ export function middleware(request: NextRequest) {
     c => c.name.startsWith('sb-') && c.name.includes('auth-token')
   )
 
-  if (!hasSession && !isAuthPage) {
+  const isPublic = request.nextUrl.pathname === '/' ||
+    request.nextUrl.pathname.startsWith('/cashier') ||
+    request.nextUrl.pathname.startsWith('/records') ||
+    request.nextUrl.pathname.startsWith('/api/cashier')
+
+  if (!hasSession && !isAuthPage && !isPublic) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 

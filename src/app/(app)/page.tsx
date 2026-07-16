@@ -1,67 +1,40 @@
 'use client'
 
 import Link from 'next/link'
-import { Calculator, Target, Plus } from 'lucide-react'
+import { CreditCard, Receipt } from 'lucide-react'
+import { useT } from '@/lib/i18n'
 
-const TOOLS = [
-  {
-    id: 'priority-os',
-    name: 'Priority OS',
-    description: 'Goals, initiatives, tasks & weekly planning',
-    href: process.env.NEXT_PUBLIC_PRIORITY_OS_URL ?? '#',
-    icon: Target,
-    color: 'bg-indigo-500',
-    external: true,
-  },
-  {
-    id: 'administratie',
-    name: 'Administratie',
-    description: 'Bankrekeningen, transacties & overzichten',
-    href: '/administratie',
-    icon: Calculator,
-    color: 'bg-emerald-500',
-    external: false,
-  },
-]
+export default function HomePage() {
+  const t = useT()
 
-export default function HubPage() {
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-semibold text-slate-900">Welkom terug</h1>
-        <p className="text-sm text-slate-500 mt-1">Kies een tool om mee aan de slag te gaan.</p>
+    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-10">
+      <div className="text-center">
+        <h1 className="logo-text text-7xl text-gather-900">gather.</h1>
+        <p className="text-sm text-gather-500 mt-6">{t('home_subtitle')}</p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {TOOLS.map(tool => {
-          const Icon = tool.icon
-          const cardClass = "group bg-white border border-slate-200 rounded-2xl p-6 flex flex-col gap-4 hover:border-slate-300 hover:shadow-md transition-all cursor-pointer"
-          const inner = (
-            <>
-              <div className={`w-12 h-12 rounded-xl ${tool.color} flex items-center justify-center`}>
-                <Icon size={22} className="text-white" />
-              </div>
-              <div>
-                <h2 className="font-semibold text-slate-900 group-hover:text-indigo-600 transition-colors">{tool.name}</h2>
-                <p className="text-sm text-slate-500 mt-0.5">{tool.description}</p>
-              </div>
-            </>
-          )
-          return tool.external ? (
-            <a key={tool.id} href={tool.href} target="_blank" rel="noopener noreferrer" className={cardClass}>{inner}</a>
-          ) : (
-            <Link key={tool.id} href={tool.href} className={cardClass}>{inner}</Link>
-          )
-        })}
-
-        {/* Add tool placeholder */}
-        <div className="bg-slate-50 border border-dashed border-slate-200 rounded-2xl p-6 flex flex-col gap-4 items-center justify-center text-center opacity-50 cursor-not-allowed">
-          <div className="w-12 h-12 rounded-xl bg-slate-200 flex items-center justify-center">
-            <Plus size={22} className="text-slate-400" />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 w-full max-w-md">
+        <Link
+          href="/cashier"
+          className="group bg-white border border-gather-200 rounded-2xl p-8 flex flex-col items-center gap-4 hover:border-gather-400 hover:shadow-lg transition-all"
+        >
+          <div className="w-14 h-14 rounded-xl bg-gather-800 flex items-center justify-center group-hover:bg-gather-900 transition-colors">
+            <CreditCard size={24} className="text-gather-50" />
           </div>
-          <div>
-            <h2 className="font-semibold text-slate-500">Tool toevoegen</h2>
-            <p className="text-xs text-slate-400 mt-0.5">Binnenkort beschikbaar</p>
+          <div className="text-center">
+            <h2 className="font-semibold text-gather-900 text-base group-hover:text-gather-700 transition-colors">{t('home_add_report')}</h2>
+            <p className="text-xs text-gather-500 mt-1">{t('home_add_report_sub')}</p>
+          </div>
+        </Link>
+
+        <div className="bg-gather-50 border border-dashed border-gather-200 rounded-2xl p-8 flex flex-col items-center gap-4 opacity-50 cursor-not-allowed">
+          <div className="w-14 h-14 rounded-xl bg-gather-200 flex items-center justify-center">
+            <Receipt size={24} className="text-gather-400" />
+          </div>
+          <div className="text-center">
+            <h2 className="font-semibold text-gather-600 text-base">{t('home_add_expenses')}</h2>
+            <p className="text-xs text-gather-400 mt-1">{t('home_coming_soon')}</p>
           </div>
         </div>
       </div>
