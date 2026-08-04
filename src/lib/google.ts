@@ -660,3 +660,78 @@ export async function uploadImageToDrive(
   const data = await res.json() as { id: string; webViewLink?: string }
   return data.webViewLink ?? `https://drive.google.com/file/d/${data.id}/view`
 }
+
+export interface FeedbackRow {
+  date: string
+  submitted_by: string
+  q1_rating: string
+  q2_dislike: string
+  q3_menu_suggestion: string
+  q4_other_feedback: string
+  q5_how_heard: string
+  q5_how_heard_other: string
+}
+
+export async function appendFeedbackRow(row: FeedbackRow): Promise<void> {
+  const token = await getAccessToken()
+  const spreadsheetId = process.env.GOOGLE_SHEETS_ID!
+  const tab = 'guest_feedback'
+
+  // Count existing rows to find the next empty row
+  const countRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(tab + '!A:A')}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  )
+  const countData = await countRes.json() as { values?: string[][] }
+  const nextRow = (countData.values?.length ?? 1) + 1
+
+  const values = [
+    row.date,
+    row.submitted_by,
+    row.q1_rating,
+    row.q2_dislike,
+    row.q3_menu_suggestion,
+    row.q4_other_feedback,
+    row.q5_how_heard,
+    row.q5_how_heard_other,
+  ]
+
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(tab + `!A${nextRow}`)}?valueInputOption=USER_ENTERED`,
+    {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ values: [values] }),
+    },
+  )
+  if (!res.ok) {
+    const err = await res.json()
+    throw new Error(`Feedback write error: ${JSON.stringify(err)}`)
+  }
+}
+
+export async function getFeedbackRows(): Promise<FeedbackRow[]> {
+  const token = await getAccessToken()
+  const spreadsheetId = process.env.GOOGLE_SHEETS_ID!
+
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent('guest_feedback!A:H')}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  )
+  if (!res.ok) return []
+  const data = await res.json() as { values?: string[][] }
+  return (data.values ?? [])
+    .slice(1)
+    .filter(r => r[0] || r[1])
+    .map(r => ({
+      date: r[0] ?? '',
+      submitted_by: r[1] ?? '',
+      q1_rating: r[2] ?? '',
+      q2_dislike: r[3] ?? '',
+      q3_menu_suggestion: r[4] ?? '',
+      q4_other_feedback: r[5] ?? '',
+      q5_how_heard: r[6] ?? '',
+      q5_how_heard_other: r[7] ?? '',
+    }))
+    .reverse()
+}

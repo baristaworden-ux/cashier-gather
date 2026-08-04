@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
-import { CreditCard, Receipt, Printer, ClipboardList } from 'lucide-react'
+import { CreditCard, Receipt, Printer, ClipboardList, MessageSquare } from 'lucide-react'
 import { LangToggle } from './LangToggle'
 import { useT } from '@/lib/i18n'
 
@@ -13,6 +13,7 @@ const NAV_ITEMS = (t: (k: any) => string) => [
   { label: t('nav_records'),      href: '/records',          icon: ClipboardList },
   { label: 'Expenses',            href: '/expenses',         icon: Receipt },
   { label: t('nav_template'),     href: '/cashier/template', icon: Printer },
+  { label: 'Feedback',            href: '/feedback',         icon: MessageSquare },
 ]
 
 export function Sidebar() {

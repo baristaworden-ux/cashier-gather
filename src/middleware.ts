@@ -13,7 +13,9 @@ export function middleware(request: NextRequest) {
     request.nextUrl.pathname.startsWith('/records') ||
     request.nextUrl.pathname.startsWith('/expenses') ||
     request.nextUrl.pathname.startsWith('/api/cashier') ||
-    request.nextUrl.pathname.startsWith('/api/expenses')
+    request.nextUrl.pathname.startsWith('/api/expenses') ||
+    request.nextUrl.pathname.startsWith('/feedback') ||
+    request.nextUrl.pathname.startsWith('/api/feedback')
 
   if (!hasSession && !isAuthPage && !isPublic) {
     return NextResponse.redirect(new URL('/login', request.url))
