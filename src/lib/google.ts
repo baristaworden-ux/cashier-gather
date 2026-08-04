@@ -274,6 +274,66 @@ export async function updateExpenseRow(
   }
 }
 
+export async function applyExpensesConditionalFormatting(): Promise<void> {
+  const token = await getAccessToken()
+  const spreadsheetId = process.env.GOOGLE_SHEETS_ID!
+
+  // Find the numeric sheetId for the 'expenses' tab
+  const metaRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  )
+  const meta = await metaRes.json() as { sheets: { properties: { sheetId: number; title: string } }[] }
+  const expSheet = meta.sheets?.find(s => s.properties.title.toLowerCase() === 'expenses')
+  if (!expSheet) throw new Error('expenses sheet not found in spreadsheet')
+  const sheetId = expSheet.properties.sheetId
+
+  // Clear existing conditional format rules on this sheet, then re-add
+  const clearRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requests: [{ clearBasicFilter: { sheetId } }],
+      }),
+    }
+  )
+  if (!clearRes.ok) { /* ignore — sheet may have no filter */ }
+
+  // Apply: green background on rows where column K (status) = "Approved"
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requests: [{
+          addConditionalFormatRule: {
+            rule: {
+              ranges: [{ sheetId, startRowIndex: 1, startColumnIndex: 0, endColumnIndex: 15 }],
+              booleanRule: {
+                condition: {
+                  type: 'CUSTOM_FORMULA',
+                  values: [{ userEnteredValue: '=$K2="Approved"' }],
+                },
+                format: {
+                  backgroundColor: { red: 0.851, green: 0.918, blue: 0.827 },
+                },
+              },
+            },
+            index: 0,
+          },
+        }],
+      }),
+    }
+  )
+  if (!res.ok) {
+    const err = await res.json()
+    throw new Error(`Conditional format error: ${JSON.stringify(err)}`)
+  }
+}
+
 export interface ExpenseCategory {
   category: string
   odoo_code: string
