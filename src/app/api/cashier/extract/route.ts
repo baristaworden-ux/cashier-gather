@@ -96,13 +96,28 @@ function extractJSON(text: string): string | null {
   }
 }
 
+type SupportedMime = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
+const SUPPORTED_MIMES: SupportedMime[] = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+
+function detectMime(buf: Uint8Array): SupportedMime | null {
+  if (buf[0] === 0xFF && buf[1] === 0xD8) return 'image/jpeg'
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return 'image/png'
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return 'image/gif'
+  if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
+      buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) return 'image/webp'
+  return null
+}
+
 async function fileToImageBlock(file: File) {
   const bytes = await file.arrayBuffer()
+  const mediaType = detectMime(new Uint8Array(bytes.slice(0, 12)))
+    ?? (SUPPORTED_MIMES.includes(file.type as SupportedMime) ? file.type as SupportedMime : null)
+  if (!mediaType) throw new Error(`Unsupported image format (${file.type || 'unknown'}). Please use JPEG, PNG, or WebP.`)
   return {
     type: 'image' as const,
     source: {
       type: 'base64' as const,
-      media_type: file.type as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+      media_type: mediaType,
       data: Buffer.from(bytes).toString('base64'),
     },
   }
@@ -150,8 +165,8 @@ Known handwriting variations seen in practice (use the canonical list name if it
 
     const client = new Anthropic()
     const message = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 4096,
+      model: 'claude-sonnet-5',
+      max_tokens: 8192,
       messages: [{
         role: 'user',
         content: [

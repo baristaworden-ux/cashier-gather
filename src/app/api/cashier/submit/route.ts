@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { appendToSheet, logFeedback } from '@/lib/google'
+import { appendToSheet, appendExpenseRows, logFeedback, getSupplierCategoryMap, findInSupplierMap } from '@/lib/google'
+
+export const maxDuration = 60
 
 function n(v: unknown): number {
   return parseFloat(String(v ?? '').replace(/[^\d.-]/g, '')) || 0
@@ -132,6 +134,44 @@ export async function POST(req: NextRequest) {
     ]
 
     await appendToSheet(row)
+
+    // Write individual expense line items to Expenses tab (non-fatal)
+    try {
+      if (Array.isArray(fields.expenses)) {
+        const validExpenses = fields.expenses.filter((e: { amount?: unknown }) => n(e.amount) > 0)
+        if (validExpenses.length > 0) {
+          const supplierMap = await getSupplierCategoryMap().catch(() => new Map())
+          const expenseRows = validExpenses.map((e: { description?: string; amount?: unknown; paid_by?: string }) => {
+            const pb = (e.paid_by ?? '').trim().toLowerCase()
+            const isBCA = pb === 'bca / bank transfer' || pb === 'edc bca' || pb === 'bca' || pb === 'bank transfer' || pb === 'transfer'
+            const supplier = (e.description ?? '').trim()
+            const mapping = findInSupplierMap(supplierMap, supplier)
+            // Only use mapping if it has a valid category name (not just an odoo_code)
+            const validMapping = (mapping?.category && mapping.category.length > 0) ? mapping : null
+            return {
+              date: fields.date ?? '',
+              supplier,
+              category: validMapping?.category ?? '',
+              description: '',
+              amount: n(e.amount),
+              payment_source: isBCA ? 'BCA / Bank Transfer' : 'Petty Cash',
+              receipt_link: '',
+              notes: '',
+              invoice_number: '',
+              internal_id: '',
+              status: 'Pending Review',
+              created_by: fields.name ?? '',
+              odoo_account_code: validMapping?.odoo_code ?? '',
+              odoo_account_name: validMapping?.odoo_name ?? '',
+              receipt_file_name: '',
+            }
+          })
+          await appendExpenseRows(expenseRows)
+        }
+      }
+    } catch (e) {
+      console.error('Expense rows write failed:', e)
+    }
 
     // Diff AI extraction vs corrected — log to Feedback sheet (non-fatal)
     try {

@@ -28,15 +28,18 @@ export default function HomePage() {
           </div>
         </Link>
 
-        <div className="bg-gather-50 border border-dashed border-gather-200 rounded-2xl p-8 flex flex-col items-center gap-4 opacity-50 cursor-not-allowed">
-          <div className="w-14 h-14 rounded-xl bg-gather-200 flex items-center justify-center">
-            <Receipt size={24} className="text-gather-400" />
+        <Link
+          href="/expenses"
+          className="group bg-white border border-gather-200 rounded-2xl p-8 flex flex-col items-center gap-4 hover:border-gather-400 hover:shadow-lg transition-all"
+        >
+          <div className="w-14 h-14 rounded-xl bg-gather-800 flex items-center justify-center group-hover:bg-gather-900 transition-colors">
+            <Receipt size={24} className="text-gather-50" />
           </div>
           <div className="text-center">
-            <h2 className="font-semibold text-gather-600 text-base">{t('home_add_expenses')}</h2>
-            <p className="text-xs text-gather-400 mt-1">{t('home_coming_soon')}</p>
+            <h2 className="font-semibold text-gather-900 text-base group-hover:text-gather-700 transition-colors">{t('home_add_expenses')}</h2>
+            <p className="text-xs text-gather-500 mt-1">Scan invoices &amp; view expenses</p>
           </div>
-        </div>
+        </Link>
       </div>
     </div>
   )

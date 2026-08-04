@@ -20,3 +20,8 @@ body {
   font-weight: 500;
   letter-spacing: -0.01em;
 }
+
+/* Safe area for notched iPhones — bottom nav sits above the home indicator */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}

@@ -114,8 +114,12 @@ export default function CashierPage() {
   function fetchLists() {
     fetch('/api/cashier/lists')
       .then(r => r.json())
-      .then(d => { setCashiers(d.cashiers ?? []); setSuppliers(d.suppliers ?? []) })
-      .catch(() => {})
+      .then(d => {
+        setCashiers(d.cashiers ?? [])
+        setSuppliers(d.suppliers ?? [])
+        if (d.error) console.warn('Lists API error:', d.error)
+      })
+      .catch(e => console.warn('fetchLists failed:', e))
   }
 
   useEffect(() => { fetchLists() }, [])
@@ -155,29 +159,66 @@ export default function CashierPage() {
 
   const SUPPORTED = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
 
-  function loadFile(file: File) {
-    if (!SUPPORTED.includes(file.type)) {
-      setError(`Unsupported file type: ${file.type || 'unknown'}. Please use JPEG, PNG, or WebP.`)
-      return
-    }
-    setImageFile(file)
-    setImagePreview(URL.createObjectURL(file))
+  // Convert any image (incl. HEIC from iOS) to JPEG via canvas.
+  // Falls back to original file if canvas fails.
+  async function normalizeToJpeg(file: File): Promise<File> {
+    if (SUPPORTED.includes(file.type) && file.size < 4 * 1024 * 1024) return file
+    return new Promise(resolve => {
+      const url = URL.createObjectURL(file)
+      const img = new Image()
+      img.onload = () => {
+        URL.revokeObjectURL(url)
+        let w = img.naturalWidth, h = img.naturalHeight
+        const MAX = 3000
+        if (w > MAX || h > MAX) {
+          if (w > h) { h = Math.round(h * MAX / w); w = MAX }
+          else { w = Math.round(w * MAX / h); h = MAX }
+        }
+        const canvas = document.createElement('canvas')
+        canvas.width = w; canvas.height = h
+        const ctx = canvas.getContext('2d')
+        if (!ctx) { resolve(file); return }
+        ctx.drawImage(img, 0, 0, w, h)
+        canvas.toBlob(blob => {
+          if (!blob) { resolve(file); return }
+          resolve(new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' }))
+        }, 'image/jpeg', 0.92)
+      }
+      img.onerror = () => { URL.revokeObjectURL(url); resolve(file) }
+      img.src = url
+    })
   }
 
-  function loadFile2(file: File) {
-    if (!SUPPORTED.includes(file.type)) {
-      setError(`Unsupported file type: ${file.type || 'unknown'}. Please use JPEG, PNG, or WebP.`)
+  async function loadFile(file: File) {
+    if (!file.type.startsWith('image/') && file.type !== '') {
+      setError('Please upload an image file (JPEG, PNG, or WebP).')
       return
     }
-    setImageFile2(file)
-    setImagePreview2(URL.createObjectURL(file))
+    try {
+      const normalized = await normalizeToJpeg(file)
+      setImageFile(normalized)
+      setImagePreview(URL.createObjectURL(normalized))
+    } catch {
+      setError('Could not load image. Please try a JPEG or PNG file.')
+    }
+  }
+
+  async function loadFile2(file: File) {
+    if (!file.type.startsWith('image/') && file.type !== '') return
+    try {
+      const normalized = await normalizeToJpeg(file)
+      setImageFile2(normalized)
+      setImagePreview2(URL.createObjectURL(normalized))
+    } catch {
+      // silently ignore second image failures
+    }
   }
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault()
     setIsDragging(false)
     const f = e.dataTransfer.files[0]
-    if (f?.type.startsWith('image/')) loadFile(f)
+    if (f) void loadFile(f)
   }
 
   async function handleExtract() {
@@ -262,9 +303,9 @@ export default function CashierPage() {
 
   /* ─── Upload ─────────────────────────────────────────────────────────── */
   if (step === 'upload') return (
-    <div className="max-w-lg mx-auto space-y-6">
+    <div className="max-w-lg mx-auto space-y-5">
       <div>
-        <h1 className="text-2xl font-semibold text-gather-900">{t('upload_title')}</h1>
+        <h1 className="text-xl md:text-2xl font-semibold text-gather-900">{t('upload_title')}</h1>
         <p className="text-sm text-gather-500 mt-1">{t('upload_subtitle')}</p>
       </div>
       {error && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>}
@@ -277,19 +318,19 @@ export default function CashierPage() {
           onDragLeave={() => setIsDragging(false)}
           onDrop={handleDrop}
           onClick={() => fileInputRef.current?.click()}
-          className={cn('border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-colors',
+          className={cn('border-2 border-dashed rounded-2xl p-6 md:p-8 text-center cursor-pointer transition-colors',
             isDragging ? 'border-gather-400 bg-gather-100' : 'border-gather-200 hover:border-gather-300 hover:bg-gather-50')}
         >
           {imagePreview ? (
             <div className="space-y-3">
-              <img src={imagePreview} alt="Page 1" className="max-h-48 mx-auto rounded-lg object-contain" />
+              <img src={imagePreview} alt="Page 1" className="max-h-56 mx-auto rounded-lg object-contain" />
               <p className="text-sm text-gather-500">{imageFile?.name}</p>
               <p className="text-xs text-gather-500">{t('upload_click_replace')}</p>
             </div>
           ) : (
-            <div className="space-y-3">
-              <div className="w-14 h-14 rounded-2xl bg-gather-100 flex items-center justify-center mx-auto">
-                <Camera size={24} className="text-gather-400" />
+            <div className="space-y-3 py-2">
+              <div className="w-16 h-16 rounded-2xl bg-gather-100 flex items-center justify-center mx-auto">
+                <Camera size={28} className="text-gather-400" />
               </div>
               <div>
                 <p className="text-sm font-medium text-gather-700">{t('upload_drag')}</p>
@@ -297,8 +338,8 @@ export default function CashierPage() {
               </div>
             </div>
           )}
-          <input ref={fileInputRef} type="file" accept="image/*" capture="environment" className="hidden"
-            onChange={e => { const f = e.target.files?.[0]; if (f) loadFile(f) }} />
+          <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; if (f) void loadFile(f) }} />
         </div>
       </div>
 
@@ -321,26 +362,27 @@ export default function CashierPage() {
               >{t('upload_remove_page2')}</button>
             </div>
           ) : (
-            <div className="flex items-center justify-center gap-2 text-gather-400 py-1">
-              <Plus size={15} />
+            <div className="flex items-center justify-center gap-2 text-gather-400 py-2">
+              <Plus size={16} />
               <span className="text-sm">{t('upload_add_page2')}</span>
             </div>
           )}
-          <input ref={fileInput2Ref} type="file" accept="image/*" capture="environment" className="hidden"
-            onChange={e => { const f = e.target.files?.[0]; if (f) loadFile2(f) }} />
+          <input ref={fileInput2Ref} type="file" accept="image/*" className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; if (f) void loadFile2(f) }} />
         </div>
       </div>
+
       <button onClick={handleExtract} disabled={!imageFile}
         className={cn(
-          'group w-full py-3 px-4 text-sm font-medium rounded-lg transition-all flex items-center justify-center gap-2',
+          'w-full py-4 md:py-3 px-4 text-sm font-medium rounded-xl transition-all flex items-center justify-center gap-2',
           imageFile
-            ? 'bg-gather-800 text-gather-50 hover:bg-gather-900 cursor-pointer'
+            ? 'bg-gather-800 text-gather-50 active:bg-gather-900 cursor-pointer'
             : 'bg-gather-200 text-gather-400 cursor-not-allowed'
         )}>
-        <Sparkles size={15} className="opacity-0 group-hover:opacity-100 -ml-4 group-hover:ml-0 transition-all duration-200" />
+        <Sparkles size={16} />
         {t('upload_analyse')}
       </button>
-      <Link href="/cashier/template" className="flex items-center justify-center gap-2 text-sm text-gather-500 hover:text-gather-800 underline underline-offset-4 transition-colors">
+      <Link href="/cashier/template" className="flex items-center justify-center gap-2 text-sm text-gather-500 hover:text-gather-800 underline underline-offset-4 transition-colors py-1">
         <Download size={14} />
         {t('upload_template')}
       </Link>
@@ -399,7 +441,7 @@ export default function CashierPage() {
       {/* Opening */}
       <div>
         <SectionHeader icon={Wallet}>{t('review_opening')}</SectionHeader>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {([
             [t('review_opening_petty'), 'opening_petty_cash'],
             [t('review_petty_received'), 'petty_cash_received'],
@@ -416,7 +458,51 @@ export default function CashierPage() {
       {/* Sales table */}
       <div>
         <SectionHeader icon={CreditCard}>{t('review_sales')}</SectionHeader>
-        <div className="overflow-x-auto">
+
+        {/* ── Mobile: stacked cards ───────────────────── */}
+        <div className="sm:hidden space-y-2">
+          {BREAKDOWN_METHODS.map((m, i) => {
+            const mt = breakdownTotals[i]
+            return (
+              <div key={m.key} className="bg-white rounded-xl border border-gather-200 p-3">
+                <div className="flex items-center justify-between mb-2.5">
+                  <span className="text-sm font-semibold text-gather-800">{m.label}</span>
+                  <span className="text-xs font-mono text-gather-500 bg-gather-50 px-2 py-0.5 rounded-full">{fmtIDR(mt.total)}</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['cafe', 'wild_muse', 'tip'] as const).map(src => {
+                    const k = `${m.key}_${src}` as keyof Fields
+                    const colLabel = src === 'cafe' ? t('review_cafe') : src === 'wild_muse' ? t('review_wildmuse') : t('review_tip')
+                    return (
+                      <div key={src}>
+                        <p className="text-[10px] font-medium text-gather-400 mb-1 text-center">{colLabel}</p>
+                        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                        <NumInput className={cell} value={fields[k] as string} onChange={v => set(k, v as any)} />
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
+          {([['Grab', 'grab', grabTotal], ['Gojek', 'gojek', gojekTotal]] as [string, keyof Fields, number][]).map(([label, key, total]) => (
+            <div key={key as string} className="bg-white rounded-xl border border-gather-200 p-3">
+              <div className="flex items-center justify-between mb-2.5">
+                <span className="text-sm font-semibold text-gather-800">{label}</span>
+                <span className="text-xs font-mono text-gather-500 bg-gather-50 px-2 py-0.5 rounded-full">{fmtIDR(total)}</span>
+              </div>
+              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+              <NumInput className={cell} value={fields[key] as string} onChange={v => set(key, v as any)} />
+            </div>
+          ))}
+          <div className="bg-gather-800 text-gather-50 rounded-xl p-3 flex justify-between items-center">
+            <span className="text-sm font-semibold">{t('review_total_earnings')}</span>
+            <span className="font-bold font-mono text-base">{fmtIDR(totalEarnings)}</span>
+          </div>
+        </div>
+
+        {/* ── Tablet / Desktop: table ─────────────────── */}
+        <div className="hidden sm:block overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gather-200">
@@ -475,49 +561,101 @@ export default function CashierPage() {
       {/* Expenses */}
       <div>
         <SectionHeader icon={Receipt}>{t('review_expenses')}</SectionHeader>
-        <div className="space-y-2">
-          <div className="flex gap-2 text-xs font-medium text-gather-400 px-1">
+        <div className="space-y-3">
+          {/* Desktop column headers */}
+          <div className="hidden sm:flex gap-2 text-xs font-medium text-gather-400 px-1">
             <span className="flex-1">{t('review_supplier')}</span>
             <span className="w-32">{t('review_amount')}</span>
             <span className="w-40">{t('review_payment')}</span>
             <span className="w-7" />
           </div>
           {fields.expenses.map((exp, i) => (
-            <div key={i} className="flex gap-2 items-center">
-              <SupplierInput
-                value={exp.description}
-                options={suppliers}
-                placeholder={t('review_supplier')}
-                onChange={v => {
-                  const exps = [...fields.expenses]
-                  exps[i] = { ...exps[i], description: v }
-                  set('expenses', exps)
-                }}
-              />
-              <NumInput className={cn(inputCls, 'w-32')} value={exp.amount}
-                onChange={v => {
-                  const exps = [...fields.expenses]
-                  exps[i] = { ...exps[i], amount: v }
-                  set('expenses', exps)
-                }} />
-              <select
-                className={cn(inputCls, 'w-40')}
-                value={isBCA(exp.paid_by) ? 'BCA / Bank Transfer' : 'Petty Cash'}
-                onChange={e => {
-                  const exps = [...fields.expenses]
-                  exps[i] = { ...exps[i], paid_by: e.target.value }
-                  set('expenses', exps)
-                }}
-              >
-                <option value="Petty Cash">Petty Cash</option>
-                <option value="BCA / Bank Transfer">BCA / Bank Transfer</option>
-              </select>
-              {fields.expenses.length > 1 && (
-                <button onClick={() => set('expenses', fields.expenses.filter((_, j) => j !== i))}
-                  className="p-2 text-gather-400 hover:text-red-500 transition-colors">
-                  <Trash2 size={15} />
-                </button>
-              )}
+            <div key={i}>
+              {/* Mobile: stacked */}
+              <div className="sm:hidden space-y-2 bg-white rounded-xl border border-gather-200 p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-gather-400">{t('review_supplier')}</span>
+                  {fields.expenses.length > 1 && (
+                    <button onClick={() => set('expenses', fields.expenses.filter((_, j) => j !== i))}
+                      className="p-1 text-gather-400 hover:text-red-500 transition-colors">
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                </div>
+                <SupplierInput
+                  value={exp.description}
+                  options={suppliers}
+                  placeholder={t('review_supplier')}
+                  onChange={v => {
+                    const exps = [...fields.expenses]
+                    exps[i] = { ...exps[i], description: v }
+                    set('expenses', exps)
+                  }}
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <p className="text-[10px] font-medium text-gather-400 mb-1">{t('review_amount')}</p>
+                    <NumInput className={inputCls} value={exp.amount}
+                      onChange={v => {
+                        const exps = [...fields.expenses]
+                        exps[i] = { ...exps[i], amount: v }
+                        set('expenses', exps)
+                      }} />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-medium text-gather-400 mb-1">{t('review_payment')}</p>
+                    <select
+                      className={inputCls}
+                      value={isBCA(exp.paid_by) ? 'BCA / Bank Transfer' : 'Petty Cash'}
+                      onChange={e => {
+                        const exps = [...fields.expenses]
+                        exps[i] = { ...exps[i], paid_by: e.target.value }
+                        set('expenses', exps)
+                      }}
+                    >
+                      <option value="Petty Cash">Petty Cash</option>
+                      <option value="BCA / Bank Transfer">BCA / Bank Transfer</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              {/* Desktop: single row */}
+              <div className="hidden sm:flex gap-2 items-center">
+                <SupplierInput
+                  value={exp.description}
+                  options={suppliers}
+                  placeholder={t('review_supplier')}
+                  onChange={v => {
+                    const exps = [...fields.expenses]
+                    exps[i] = { ...exps[i], description: v }
+                    set('expenses', exps)
+                  }}
+                />
+                <NumInput className={cn(inputCls, 'w-32')} value={exp.amount}
+                  onChange={v => {
+                    const exps = [...fields.expenses]
+                    exps[i] = { ...exps[i], amount: v }
+                    set('expenses', exps)
+                  }} />
+                <select
+                  className={cn(inputCls, 'w-40')}
+                  value={isBCA(exp.paid_by) ? 'BCA / Bank Transfer' : 'Petty Cash'}
+                  onChange={e => {
+                    const exps = [...fields.expenses]
+                    exps[i] = { ...exps[i], paid_by: e.target.value }
+                    set('expenses', exps)
+                  }}
+                >
+                  <option value="Petty Cash">Petty Cash</option>
+                  <option value="BCA / Bank Transfer">BCA / Bank Transfer</option>
+                </select>
+                {fields.expenses.length > 1 && (
+                  <button onClick={() => set('expenses', fields.expenses.filter((_, j) => j !== i))}
+                    className="p-2 text-gather-400 hover:text-red-500 transition-colors">
+                    <Trash2 size={15} />
+                  </button>
+                )}
+              </div>
             </div>
           ))}
           <button onClick={() => set('expenses', [...fields.expenses, { description: '', amount: '', paid_by: '' }])}

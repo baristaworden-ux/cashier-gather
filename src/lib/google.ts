@@ -5,11 +5,15 @@ async function getAccessToken(): Promise<string> {
     .replace(/^["']|["']$/g, '')
     .trim()
 
+  if (!email) throw new Error('GOOGLE_SERVICE_ACCOUNT_EMAIL is not set in environment variables')
+  if (!rawKey) throw new Error('GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY is not set in environment variables')
+
   // Strip PEM headers and decode base64 — works with PKCS8 keys on OpenSSL 3
   const pemBody = rawKey
     .replace(/-----BEGIN[^-]+-----/, '')
     .replace(/-----END[^-]+-----/, '')
     .replace(/\s+/g, '')
+  if (!pemBody) throw new Error('GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY appears empty after stripping PEM headers')
   const keyBytes = Uint8Array.from(Buffer.from(pemBody, 'base64'))
   const cryptoKey = await globalThis.crypto.subtle.importKey(
     'pkcs8',
@@ -127,6 +131,232 @@ export async function getRecentFeedback(): Promise<{ field: string; ai: string; 
   const rows = (data.values ?? []).slice(1) // skip header
   // Return last 15 corrections, newest first
   return rows.slice(-15).reverse().map(r => ({ field: r[1] ?? '', ai: r[2] ?? '', corrected: r[3] ?? '' }))
+}
+
+// Matches the existing 'expenses' tab: A–O (15 columns)
+// Date | Supplier | Category | Description | Amount | Payment Source |
+// Receipt Link | Notes | Invoice Number | Internal ID | Status | Created By |
+// Odoo Account Code | Odoo Account Name | Receipt File Name
+export interface ExpenseRow {
+  date: string
+  supplier: string
+  category: string
+  description: string
+  amount: number
+  payment_source: string
+  receipt_link: string
+  notes: string
+  invoice_number: string
+  internal_id: string
+  status: string
+  created_by: string
+  odoo_account_code: string
+  odoo_account_name: string
+  receipt_file_name: string
+}
+
+export async function appendExpenseRows(rows: Partial<ExpenseRow>[]): Promise<void> {
+  if (!rows.length) return
+  const token = await getAccessToken()
+  const spreadsheetId = process.env.GOOGLE_SHEETS_ID!
+
+  const countRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent('expenses!A:A')}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  )
+  const countData = await countRes.json() as { values?: string[][] }
+  const existingCount = countData.values?.length ?? 1 // includes header row
+  const nextRow = existingCount + 1
+  // Internal IDs start after header: row 2 = ID 1, row 3 = ID 2, etc.
+  const firstId = existingCount // data rows already in sheet (header excluded)
+
+  const writeRange = encodeURIComponent(`expenses!A${nextRow}`)
+  const values = rows.map((r, i) => [
+    r.date ?? '',
+    r.supplier ?? '',
+    r.category ?? '',
+    r.description ?? '',
+    r.amount ?? '',
+    r.payment_source ?? '',
+    r.receipt_link ?? '',
+    r.notes ?? '',
+    r.invoice_number ?? '',
+    r.internal_id || String(firstId + i), // auto-assign sequential ID if not set
+    r.status ?? '',
+    r.created_by ?? '',
+    r.odoo_account_code ?? '',
+    r.odoo_account_name ?? '',
+    r.receipt_file_name ?? '',
+  ])
+
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${writeRange}?valueInputOption=USER_ENTERED`,
+    {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ values }),
+    },
+  )
+  if (!res.ok) {
+    const err = await res.json()
+    throw new Error(`Expenses write error: ${JSON.stringify(err)}`)
+  }
+}
+
+export async function getExpenseRows(): Promise<(ExpenseRow & { sheetRowIndex: number })[]> {
+  const token = await getAccessToken()
+  const spreadsheetId = process.env.GOOGLE_SHEETS_ID!
+
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent('expenses!A:O')}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  )
+  if (!res.ok) return []
+  const data = await res.json() as { values?: string[][] }
+  return (data.values ?? []).slice(1)
+    .map((r, i) => ({
+      sheetRowIndex: i + 2, // +1 for 0-index, +1 for header row
+      date: r[0] ?? '',
+      supplier: r[1] ?? '',
+      category: r[2] ?? '',
+      description: r[3] ?? '',
+      amount: parseFloat(r[4] ?? '0') || 0,
+      payment_source: r[5] ?? '',
+      receipt_link: r[6] ?? '',
+      notes: r[7] ?? '',
+      invoice_number: r[8] ?? '',
+      internal_id: r[9] ?? '',
+      status: r[10] ?? '',
+      created_by: r[11] ?? '',
+      odoo_account_code: r[12] ?? '',
+      odoo_account_name: r[13] ?? '',
+      receipt_file_name: r[14] ?? '',
+    }))
+    .filter(r => r.date || r.supplier || r.description)
+}
+
+export async function updateExpenseRow(
+  sheetRowIndex: number,
+  updates: {
+    supplier?: string
+    category?: string
+    payment_source?: string
+    odoo_account_code?: string
+    odoo_account_name?: string
+    status?: string
+  }
+): Promise<void> {
+  const token = await getAccessToken()
+  const spreadsheetId = process.env.GOOGLE_SHEETS_ID!
+
+  // expenses columns: B=supplier C=category F=payment_source K=status M=odoo_account_code N=odoo_account_name
+  const COLS: Record<string, string> = {
+    supplier: 'B', category: 'C', payment_source: 'F',
+    status: 'K', odoo_account_code: 'M', odoo_account_name: 'N',
+  }
+  const data = (Object.entries(updates) as [string, string | undefined][])
+    .filter(([k, v]) => COLS[k] !== undefined && v !== undefined)
+    .map(([k, v]) => ({ range: `expenses!${COLS[k]}${sheetRowIndex}`, values: [[v]] }))
+
+  if (!data.length) return
+
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data }),
+    }
+  )
+  if (!res.ok) {
+    const err = await res.json()
+    throw new Error(`Expense update error: ${JSON.stringify(err)}`)
+  }
+}
+
+export interface ExpenseCategory {
+  category: string
+  odoo_code: string
+  odoo_name: string
+}
+
+export async function getExpenseCategoryList(): Promise<ExpenseCategory[]> {
+  const token = await getAccessToken()
+  const spreadsheetId = process.env.GOOGLE_SHEETS_ID!
+
+  // Read the full Lists sheet to find column positions dynamically
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent('Lists!1:200')}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  )
+  if (!res.ok) return []
+  const data = await res.json() as { values?: string[][] }
+  const rows = data.values ?? []
+  if (!rows.length) return []
+
+  const headers = rows[0].map(h => h.trim().toLowerCase())
+  // Match by header, fall back to column C (index 2) — user confirmed categories are in C2:C49
+  const findCol = (...terms: string[]) => {
+    const i = headers.findIndex(h => terms.some(t => h.includes(t)))
+    return i !== -1 ? i : -1
+  }
+  const catCol  = findCol('expense category') !== -1 ? findCol('expense category') : findCol('category') !== -1 ? findCol('category') : 2
+  const codeCol = findCol('odoo account code', 'account code')
+  const nameCol = findCol('odoo account name', 'account name')
+
+  return rows.slice(1)
+    .map(r => ({
+      category: r[catCol]?.trim() ?? '',
+      odoo_code: codeCol !== -1 ? (r[codeCol]?.trim() ?? '') : '',
+      odoo_name: nameCol !== -1 ? (r[nameCol]?.trim() ?? '') : '',
+    }))
+    .filter(r => r.category && !r.category.startsWith('#'))
+}
+
+export interface SupplierMapping {
+  category: string
+  odoo_code: string
+  odoo_name: string
+}
+
+export async function getSupplierCategoryMap(): Promise<Map<string, SupplierMapping>> {
+  const token = await getAccessToken()
+  const spreadsheetId = process.env.GOOGLE_SHEETS_ID!
+
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent('Lists!A:F')}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  )
+  if (!res.ok) return new Map()
+  const data = await res.json() as { values?: string[][] }
+  const rows = data.values ?? []
+
+  const map = new Map<string, SupplierMapping>()
+  rows.slice(1).forEach(row => {
+    const supplier = row[0]?.trim()
+    const category = row[1]?.trim()  // column B
+    const odoo_code = row[2]?.trim() // column C
+    const odoo_name = row[4]?.trim() // column E
+    if (supplier && category) {
+      map.set(supplier.toLowerCase(), {
+        category,
+        odoo_code: odoo_code ?? '',
+        odoo_name: odoo_name ?? '',
+      })
+    }
+  })
+  return map
+}
+
+export function findInSupplierMap(map: Map<string, SupplierMapping>, supplier: string): SupplierMapping | undefined {
+  const key = supplier.trim().toLowerCase()
+  const exact = map.get(key)
+  if (exact) return exact
+  let found: SupplierMapping | undefined
+  map.forEach((value, k) => {
+    if (!found && (key.includes(k) || k.includes(key))) found = value
+  })
+  return found
 }
 
 export async function getSupplierList(): Promise<string[]> {

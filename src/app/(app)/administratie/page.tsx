@@ -2320,6 +2320,7 @@ function AdministratieInner() {
                   {transferPairs !== null && transferPairs.length > 0 && (
                     <div className="space-y-2">
                       {transferPairs.map(pair => {
+                        // eslint-disable-next-line @typescript-eslint/no-unused-vars
                         const [legA, legB] = pair.legs
                         const incomeleg = pair.legs.find(l => l.type === 'income')
                         const transferleg = pair.legs.find(l => l.type !== 'income')
