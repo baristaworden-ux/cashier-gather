@@ -20,6 +20,7 @@ export async function PATCH(req: NextRequest) {
       supplier?: string
       category?: string
       payment_source?: string
+      amount?: number
       odoo_account_code?: string
       odoo_account_name?: string
       status?: string

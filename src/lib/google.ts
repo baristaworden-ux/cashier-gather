@@ -241,6 +241,7 @@ export async function updateExpenseRow(
     supplier?: string
     category?: string
     payment_source?: string
+    amount?: number
     odoo_account_code?: string
     odoo_account_name?: string
     status?: string
@@ -249,12 +250,12 @@ export async function updateExpenseRow(
   const token = await getAccessToken()
   const spreadsheetId = process.env.GOOGLE_SHEETS_ID!
 
-  // expenses columns: B=supplier C=category F=payment_source K=status M=odoo_account_code N=odoo_account_name
+  // expenses columns: B=supplier C=category E=amount F=payment_source K=status M=odoo_account_code N=odoo_account_name
   const COLS: Record<string, string> = {
-    supplier: 'B', category: 'C', payment_source: 'F',
+    supplier: 'B', category: 'C', amount: 'E', payment_source: 'F',
     status: 'K', odoo_account_code: 'M', odoo_account_name: 'N',
   }
-  const data = (Object.entries(updates) as [string, string | undefined][])
+  const data = (Object.entries(updates) as [string, string | number | undefined][])
     .filter(([k, v]) => COLS[k] !== undefined && v !== undefined)
     .map(([k, v]) => ({ range: `expenses!${COLS[k]}${sheetRowIndex}`, values: [[v]] }))
 

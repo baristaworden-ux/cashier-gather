@@ -35,6 +35,7 @@ interface PendingEdit {
   category: string
   odoo_account_code: string
   odoo_account_name: string
+  amount: number
 }
 
 function fmtIDR(n: number): string {
@@ -97,6 +98,7 @@ export default function ExpensesPage() {
             category: row.category,
             odoo_account_code: row.odoo_account_code,
             odoo_account_name: row.odoo_account_name,
+            amount: row.amount,
           })
         }
       })
@@ -133,6 +135,7 @@ export default function ExpensesPage() {
                 category: '',
                 odoo_account_code: '',
                 odoo_account_name: '',
+                amount: row.amount,
               }
               next.set(row.sheetRowIndex, {
                 ...cur,
@@ -189,6 +192,7 @@ export default function ExpensesPage() {
       category: row.category,
       odoo_account_code: row.odoo_account_code,
       odoo_account_name: row.odoo_account_name,
+      amount: row.amount,
     }
   }
 
@@ -197,8 +201,8 @@ export default function ExpensesPage() {
       const next = new Map(prev)
       const row = rows.find(r => r.sheetRowIndex === sheetRowIndex)
       const defaults: PendingEdit = row
-        ? { supplier: row.supplier, payment_source: row.payment_source || 'Petty Cash', category: row.category, odoo_account_code: row.odoo_account_code, odoo_account_name: row.odoo_account_name }
-        : { supplier: '', payment_source: 'Petty Cash', category: '', odoo_account_code: '', odoo_account_name: '' }
+        ? { supplier: row.supplier, payment_source: normalizePaymentSource(row.payment_source), category: row.category, odoo_account_code: row.odoo_account_code, odoo_account_name: row.odoo_account_name, amount: row.amount }
+        : { supplier: '', payment_source: 'Petty Cash', category: '', odoo_account_code: '', odoo_account_name: '', amount: 0 }
       next.set(sheetRowIndex, { ...(next.get(sheetRowIndex) ?? defaults), ...patch })
       return next
     })
@@ -227,6 +231,7 @@ export default function ExpensesPage() {
           category: edit.category,
           odoo_account_code: edit.odoo_account_code,
           odoo_account_name: edit.odoo_account_name,
+          amount: edit.amount,
           status: 'Approved',
         }),
       })
@@ -320,10 +325,13 @@ export default function ExpensesPage() {
                     return (
                       <div key={row.sheetRowIndex} className="bg-white border border-amber-200 rounded-xl p-4 space-y-3">
                         {/* Amount + payment badge */}
-                        <div className="flex items-center justify-between">
-                          <span className="text-base font-mono font-semibold text-gather-900">
-                            {fmtIDR(row.amount)}
-                          </span>
+                        <div className="flex items-center justify-between gap-3">
+                          <input
+                            type="number"
+                            className="text-base font-mono font-semibold text-gather-900 bg-transparent border-b border-dashed border-gather-300 focus:border-gather-600 focus:outline-none w-36"
+                            value={edit.amount}
+                            onChange={e => updateEdit(row.sheetRowIndex, { amount: parseFloat(e.target.value) || 0 })}
+                          />
                           <span className={cn(
                             'text-xs px-2 py-0.5 rounded-full font-medium',
                             isBCA ? 'bg-blue-50 text-blue-600' : 'bg-gather-100 text-gather-600'
