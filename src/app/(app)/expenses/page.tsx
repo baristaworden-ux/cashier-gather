@@ -44,7 +44,11 @@ function fmtDate(raw: string): string {
   if (!raw) return '—'
   const d = new Date(raw + 'T00:00:00')
   if (isNaN(d.getTime())) return raw
-  return d.toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' })
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+}
+function normalizePaymentSource(ps: string): 'Petty Cash' | 'BCA / Bank Transfer' {
+  const s = (ps ?? '').toLowerCase()
+  return (s.includes('bca') || s.includes('bank') || s.includes('transfer')) ? 'BCA / Bank Transfer' : 'Petty Cash'
 }
 
 const inputCls = 'w-full px-3 py-2 text-sm border border-gather-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gather-500 bg-white'
@@ -82,14 +86,14 @@ export default function ExpensesPage() {
     const pending = allRows.filter(r => (r.status ?? '').toLowerCase() === 'pending review')
     if (!pending.length) return
 
-    // Initialize edits for all pending rows
+    // Initialize edits for all pending rows (normalize payment_source to known values)
     setPendingEdits(prev => {
       const next = new Map(prev)
       pending.forEach(row => {
         if (!next.has(row.sheetRowIndex)) {
           next.set(row.sheetRowIndex, {
             supplier: row.supplier,
-            payment_source: row.payment_source || 'Petty Cash',
+            payment_source: normalizePaymentSource(row.payment_source),
             category: row.category,
             odoo_account_code: row.odoo_account_code,
             odoo_account_name: row.odoo_account_name,
@@ -102,26 +106,37 @@ export default function ExpensesPage() {
     const needsCat = pending.filter(r => !r.category)
     if (!needsCat.length) return
 
+    // Deduplicate by supplier — many rows share the same supplier
+    const uniqueSuppliers = Array.from(new Set(needsCat.map(r => r.supplier).filter(Boolean)))
+    if (!uniqueSuppliers.length) return
+
     setCategorizing(true)
     try {
       const res = await fetch('/api/expenses/categorize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          expenses: needsCat.map(r => ({ description: r.supplier, amount: r.amount }))
+          expenses: uniqueSuppliers.map(s => ({ description: s, amount: 0 }))
         }),
       })
       const data = await res.json()
       if (data.suggestions) {
+        const bySupplier = new Map(uniqueSuppliers.map((s, i) => [s, data.suggestions[i]]))
         setPendingEdits(prev => {
           const next = new Map(prev)
-          needsCat.forEach((row, i) => {
-            const s = data.suggestions[i]
-            if (s) {
-              const cur = next.get(row.sheetRowIndex)!
+          needsCat.forEach(row => {
+            const s = bySupplier.get(row.supplier)
+            if (s?.category) {
+              const cur = next.get(row.sheetRowIndex) ?? {
+                supplier: row.supplier,
+                payment_source: normalizePaymentSource(row.payment_source),
+                category: '',
+                odoo_account_code: '',
+                odoo_account_name: '',
+              }
               next.set(row.sheetRowIndex, {
                 ...cur,
-                category: s.category ?? '',
+                category: s.category,
                 odoo_account_code: s.odoo_account_code ?? '',
                 odoo_account_name: s.odoo_account_name ?? '',
               })
@@ -170,7 +185,7 @@ export default function ExpensesPage() {
   function getEdit(row: ExpenseRow): PendingEdit {
     return pendingEdits.get(row.sheetRowIndex) ?? {
       supplier: row.supplier,
-      payment_source: row.payment_source || 'Petty Cash',
+      payment_source: normalizePaymentSource(row.payment_source),
       category: row.category,
       odoo_account_code: row.odoo_account_code,
       odoo_account_name: row.odoo_account_name,
@@ -245,9 +260,9 @@ export default function ExpensesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-gather-900">Uitgaven</h1>
+          <h1 className="text-xl font-semibold text-gather-900">Expenses</h1>
           {pendingRows.length > 0 && (
-            <p className="text-sm text-amber-600 mt-0.5">{pendingRows.length} te bevestigen</p>
+            <p className="text-sm text-amber-600 mt-0.5">{pendingRows.length} to confirm</p>
           )}
         </div>
         <button
@@ -275,12 +290,12 @@ export default function ExpensesPage() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-semibold text-amber-700 bg-amber-100 px-2.5 py-1 rounded-full">
-                    Te bevestigen · {pendingRows.length}
+                    To confirm · {pendingRows.length}
                   </span>
                   {categorizing && (
                     <span className="flex items-center gap-1 text-xs text-gather-400">
                       <Loader2 size={11} className="animate-spin" />
-                      AI categoriseert…
+                      AI categorizing…
                     </span>
                   )}
                 </div>
@@ -290,7 +305,7 @@ export default function ExpensesPage() {
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gather-800 text-gather-50 rounded-lg hover:bg-gather-900 disabled:opacity-60 transition-colors"
                 >
                   <CheckCheck size={13} />
-                  Bevestig alles
+                  Confirm all
                 </button>
               </div>
 
@@ -319,7 +334,7 @@ export default function ExpensesPage() {
 
                         {/* Supplier */}
                         <div>
-                          <label className="block text-[10px] font-medium text-gather-400 mb-1">Leverancier</label>
+                          <label className="block text-[10px] font-medium text-gather-400 mb-1">Supplier</label>
                           <input
                             type="text"
                             className={inputCls}
@@ -330,7 +345,7 @@ export default function ExpensesPage() {
 
                         {/* Payment method toggle */}
                         <div>
-                          <label className="block text-[10px] font-medium text-gather-400 mb-1">Betaalmethode</label>
+                          <label className="block text-[10px] font-medium text-gather-400 mb-1">Payment method</label>
                           <div className="flex rounded-lg border border-gather-200 overflow-hidden text-sm">
                             {(['Petty Cash', 'BCA / Bank Transfer'] as const).map(opt => (
                               <button
@@ -352,7 +367,7 @@ export default function ExpensesPage() {
 
                         {/* Category */}
                         <div>
-                          <label className="block text-[10px] font-medium text-gather-400 mb-1">Categorie (Accountant)</label>
+                          <label className="block text-[10px] font-medium text-gather-400 mb-1">Category (Accountant)</label>
                           <select
                             className={inputCls}
                             value={edit.category}
@@ -381,7 +396,7 @@ export default function ExpensesPage() {
                           {isConfirming
                             ? <Loader2 size={14} className="animate-spin" />
                             : <CheckCircle size={14} />}
-                          {isConfirming ? 'Opslaan…' : 'Bevestig'}
+                          {isConfirming ? 'Saving…' : 'Confirm'}
                         </button>
                       </div>
                     )
@@ -395,10 +410,10 @@ export default function ExpensesPage() {
 
           {/* ── History ──────────────────────────────────── */}
           {rows.length === 0 ? (
-            <div className="text-center py-24 text-gather-400 text-sm">Nog geen uitgaven</div>
+            <div className="text-center py-24 text-gather-400 text-sm">No expenses yet</div>
           ) : confirmedRows.length > 0 ? (
             <div className="space-y-2">
-              <p className="text-xs font-medium text-gather-500 px-1">Geschiedenis</p>
+              <p className="text-xs font-medium text-gather-500 px-1">History</p>
               {sortedDates.map(date => {
                 const dayRows = confirmedByDate[date]
                 const dayTotal = dayRows.reduce((s, r) => s + r.amount, 0)
@@ -432,7 +447,7 @@ export default function ExpensesPage() {
                                     {row.category}{row.odoo_account_code ? ` · ${row.odoo_account_code}` : ''}
                                   </p>
                                 ) : (
-                                  <p className="text-[10px] text-amber-400 mt-0.5">geen categorie</p>
+                                  <p className="text-[10px] text-amber-400 mt-0.5">no category</p>
                                 )}
                               </div>
                               <div className="text-right ml-3 shrink-0">
